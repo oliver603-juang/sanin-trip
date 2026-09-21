@@ -140,16 +140,16 @@ window.BACKUP_RESTAURANTS = [
 // 5. 航班資訊
 window.FLIGHT_INFO = {
   outbound: {
-    flight: "BR134", airline: "長榮航空 EVA Air", aircraft: "待確認",
-    from: "TPE 桃園", to: "UKB 神戶", dep: "待確認", arr: "待確認",
-    date: "1/25 (一)", duration: "約 2h45m",
-  },
-  inbound: {
-    flight: "BR175", airline: "長榮航空 EVA Air", aircraft: "待確認",
-    from: "UKB 神戶", to: "TPE 桃園", dep: "待確認", arr: "待確認",
-    date: "1/30 (六)", duration: "約 3h",
-  },
-  baggage: {
+flight: "BR134", airline: "長榮航空 EVA Air", aircraft: "AIRBUS A321",
+from: "TPE 桃園 第二航廈", to: "UKB 神戶 第二航廈", dep: "06:30", arr: "10:00",
+date: "1/25 (一)・訂位 FDEK8N", duration: "約 2h30m", pnr: "FDEK8N",
+},
+inbound: {
+flight: "BR175", airline: "長榮航空 EVA Air", aircraft: "AIRBUS A321",
+from: "UKB 神戶 第二航廈", to: "TPE 桃園 第二航廈", dep: "19:00", arr: "21:15",
+date: "1/30 (六)・訂位 FDEK8N", duration: "約 3h15m", pnr: "FDEK8N",
+},
+baggage: {
     cabin: "經濟艙",
     checkedPerPerson: "待確認",
     checkedSizeLimit: "三邊總和 ≤ 158cm",

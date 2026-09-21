@@ -6,7 +6,7 @@
 // 1. APP 基本設定
 window.TRIP_ID = "2027-sanin-0125";
 window.APP_TITLE = "2027 山陰鳥取冬遊";
-window.APP_LOGO = "logo.jpg";
+window.APP_LOGO = "icon-192.png";
 window.DEFAULT_CURRENCY = "JPY";
 
 window.CURRENCY_OPTIONS = [

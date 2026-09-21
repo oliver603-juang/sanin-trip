@@ -2113,7 +2113,22 @@ function App() {
   const [showChainPanel, setShowChainPanel] = useState(false);
   const [chainMidpoint, setChainMidpoint] = useState(null);
   const [chainStores, setChainStores] = useState([]);
+  const [copiedStore, setCopiedStore] = useState(null);
   const chains = window.CHAIN_STORES || [];
+
+  const copyBranch = async (name, idx) => {
+    try {
+      await navigator.clipboard.writeText(name);
+      setCopiedStore(idx);
+      setTimeout(() => setCopiedStore(null), 2000);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = name; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+      setCopiedStore(idx);
+      setTimeout(() => setCopiedStore(null), 2000);
+    }
+  };
 
   const openChainFinder = (spotA, spotB) => {
     const midLat = ((spotA.lat || 0) + (spotB.lat || 0)) / 2;
@@ -2929,8 +2944,11 @@ ${JSON.stringify(hotelWithDates)}
               <button onClick={() => setShowChainPanel(false)} className="p-2 text-gray-400"><Icons.X size={24} /></button>
             </div>
             <div className="text-xs text-gray-400 mb-1">{chainMidpoint.fromName} → {chainMidpoint.toName}</div>
-            <div className="bg-gray-50 rounded-lg px-3 py-2 mb-3 text-center text-sm">
+            <div className="bg-gray-50 rounded-lg px-3 py-2 mb-2 text-center text-sm">
               📏 直達 <span className="font-black text-gray-900">{chainMidpoint.d1km} km</span>
+            </div>
+            <div className="text-[11px] text-gray-400 mb-3 text-center leading-relaxed">
+              📋 複製店名 → Google Maps 右側 🔍 沿途搜尋貼上 → 新增停靠站
             </div>
 
             {chainStores.length > 0 ? (
@@ -2940,20 +2958,28 @@ ${JSON.stringify(hotelWithDates)}
                   const colorClass = store.detour <= 500 ? "bg-green-50 border-green-300 text-green-800" : store.detour <= 2000 ? "bg-green-50 border-green-200 text-green-800" : store.detour <= 5000 ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-red-50 border-red-200 text-red-800";
                   const badgeClass = store.detour <= 500 ? "bg-green-100 text-green-700" : store.detour <= 2000 ? "bg-green-100 text-green-700" : store.detour <= 5000 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
                   const catIcon = store.cat === "丼飯" ? "🍚" : "🛒";
+                  const branchName = store.branch && store.branch.match(/[\u3000-\u9fff]/) ? store.branch : store.name + " " + (store.branch || "");
+                  const isCopied = copiedStore === i;
                   return (
-                    <a key={i} href={chainNavUrl(store.branch && store.branch.match(/[\u3000-\u9fff]/) ? store.branch : store.name + " " + (store.branch || ""), chainMidpoint, store.lat, store.lng)} target="_blank" rel="noreferrer"
-                      className={`block p-3 rounded-xl border-2 ${colorClass} active:scale-[0.98] transition`}>
+                    <div key={i} className={`p-3 rounded-xl border-2 ${colorClass} transition`}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-bold text-sm">{store.icon} {store.name}</span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${badgeClass}`}>
                           {store.detour <= 500 ? "✅ 不繞路" : "🔄 +" + detourKm}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">{catIcon} {store.branch || store.name}</span>
-                        <span className="text-xs font-bold">🚗 導航</span>
+                      <div className="text-xs text-gray-500 mb-2">{catIcon} {store.branch || store.name}</div>
+                      <div className="flex gap-2">
+                        <button onClick={() => copyBranch(branchName, i)}
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold transition active:scale-95 ${isCopied ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
+                          {isCopied ? "✅ 已複製" : "📋 複製店名"}
+                        </button>
+                        <a href={chainNavUrl(branchName, chainMidpoint, store.lat, store.lng)} target="_blank" rel="noreferrer"
+                          className="flex-1 py-2 bg-gray-900 text-white rounded-lg text-xs font-bold text-center active:scale-95 transition">
+                          🚗 導航
+                        </a>
                       </div>
-                    </a>
+                    </div>
                   );
                 })}
               </div>

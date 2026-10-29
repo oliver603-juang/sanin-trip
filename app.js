@@ -4866,6 +4866,35 @@ const metroTimeline = (spots) => {
     return { a, dep };
   });
 };
+// 依實際進度順延今天剩下的行程：
+//  ・GPS 到站時記下的「實際到達」比預計晚／早 → 後面全部跟著移
+//  ・已到站、超過預計出發時間還沒按出發 → 以「現在」當出發，後面順延（每分鐘更新）
+//  ・按「出發往下一站」的實際時間，本來就會在 tripData 裡往後串
+//  ・只有「時間推估」的位置不順延（避免推估又推估）
+const applyLiveTiming = (tripData, st, nowMin, arrivals) => {
+  if (st.phase !== "trip" || st.source === "time" || st.source === "hotel") return { data: tripData, delay: 0 };
+  const di = st.dayIdx, c = st.spotIdx;
+  const spots = tripData[di].spots;
+  const tl = metroTimeline(spots);
+  const cur = spots[c];
+  let delta = 0;
+  const arr = arrivals[cur.id];
+  if (arr) delta = timeToMinutes(arr) - tl[c].a;
+  if (!cur.isDeparted) {
+    const plannedDep = tl[c].dep + delta;
+    if (nowMin > plannedDep) delta += nowMin - plannedDep;
+  }
+  if (Math.abs(delta) < 1) return { data: tripData, delay: 0 };
+  const newSpots = spots.map((s, i) => {
+    if (i < c) return s;
+    const a = i === c ? (arr ? timeToMinutes(arr) : tl[i].a) : tl[i].a + delta;
+    return { ...s, time: minutesToTimeStr(a), plannedTime: s.time, shifted: i > c };
+  });
+  const data = tripData.slice();
+  data[di] = { ...tripData[di], spots: newSpots };
+  return { data, delay: Math.round(delta) };
+};
+
 const computeMetroState = (tripData, now, gps, shoppingList) => {
   const [Y, M, D] = METRO.tripStart;
   const start = new Date(Y, M, D);
@@ -5014,6 +5043,19 @@ const MetroTab = ({
   const [gpsOn, setGpsOn] = useState(() => localStorage.getItem("metro_gps") === "1");
   const now = useMetroClock(sim);
   const st = useMemo(() => computeMetroState(tripData, now, sim ? null : gps, shoppingList), [tripData, now, gps, sim, shoppingList]);
+  // GPS 第一次靠站 → 記錄實際到達時間（試玩模式不記）
+  const [arrivals, setArrivals] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("metro_arrivals") || "{}"); } catch (e) { return {}; }
+  });
+  const curSpot = st.phase === "trip" ? tripData[st.dayIdx].spots[st.spotIdx] : null;
+  useEffect(() => {
+    if (sim || st.source !== "gps" || !curSpot || arrivals[curSpot.id]) return;
+    const next = { ...arrivals, [curSpot.id]: hhmm(new Date()) };
+    setArrivals(next);
+    try { localStorage.setItem("metro_arrivals", JSON.stringify(next)); } catch (e) {}
+  }, [st.source, curSpot && curSpot.id, sim]);
+  const live = useMemo(() => applyLiveTiming(tripData, st, st.nowMin, sim ? {} : arrivals), [tripData, st, arrivals, sim]);
+  const liveData = live.data;
 
   useEffect(() => {
     try { sim ? localStorage.setItem("metro_sim", JSON.stringify(sim)) : localStorage.removeItem("metro_sim"); } catch (e) {}
@@ -5062,7 +5104,7 @@ const MetroTab = ({
     return () => meta.setAttribute("content", prev);
   }, [dayIdxView]);
 
-  const common = { tripData, st, now, go, back, sim };
+  const common = { tripData: liveData, st, now, go, back, sim, delay: live.delay };
   return (
     <div style={{ background: METRO.bg, color: METRO.ink, minHeight: "100%", fontFamily: "'Noto Sans TC', system-ui, sans-serif" }}>
       {sim && (
@@ -5119,7 +5161,7 @@ const SimSheet = ({ sim, setSim, close, tripData }) => {
 };
 
 // ---- ① 首頁：環狀路線圖 ----
-const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim }) => {
+const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim, delay }) => {
   const { flat } = st;
   const N = flat.length;
   const P = ringGeom.P;
@@ -5326,7 +5368,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
         </span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFC24D" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
         <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 11, color: "#C9C3B8" }}>{next ? `下一站・${next.time}` : "今日終點"}</span>
+          <span style={{ fontSize: 11, color: delay > 0 ? "#FFC24D" : "#C9C3B8" }}>{next ? `下一站・${next.time}${delay > 0 ? `（晚 ${delay} 分）` : delay < 0 ? `（早 ${-delay} 分）` : ""}` : "今日終點"}</span>
           <span style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{next ? metroShort(next.name) : "休息"}</span>
         </span>
       </button>
@@ -5363,7 +5405,7 @@ const chipStyle = (bg, bd, fg) => ({
 });
 
 // ---- ② 當日直線路線 ----
-const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureToggle, winterRoutes }) => {
+const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureToggle, winterRoutes, delay }) => {
   const day = tripData[dayIdx];
   const spots = day.spots;
   const color = METRO.colors[dayIdx], tint = METRO.tints[dayIdx], on = METRO.onColor[dayIdx];
@@ -5401,7 +5443,19 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureTo
           {isToday && <span style={hdrChip("#fff", color)}>已完成 {st.spotIdx} 站</span>}
           <span style={hdrChip("rgba(255,255,255,.2)", on)}>{spots.length} 站・{spots[0].time} 出發</span>
           {risk && <span style={hdrChip(risk[1], risk[2])}>雪況 {risk[0]}</span>}
+          {isToday && delay !== 0 && <span style={hdrChip(delay > 0 ? "#FFD2CC" : "#CDEBD8", delay > 0 ? "#8A1C12" : "#0B5E36")}>{delay > 0 ? `進度晚 ${delay} 分・後面已順延` : `進度早 ${-delay} 分`}</span>}
         </div>
+        {isToday && (() => {
+          const h = hotelIndex(spots);
+          if (h < 0 || h <= cur) return null;
+          const eta = metroTimeline(spots)[h].a;
+          if (eta < 21 * 60) return null;
+          return (
+            <div style={{ background: "rgba(0,0,0,.18)", borderRadius: 12, padding: "8px 10px", fontSize: 12, fontWeight: 700 }}>
+              照目前進度 {minutesToTimeStr(eta)} 才到飯店，建議跳過一站或縮短停留（到「詳細卡片」改停留時間）
+            </div>
+          );
+        })()}
         {/* 左右滑換日 */}
         <div style={{ display: "flex", gap: 8 }}>
           {dayIdx > 0 && (
@@ -5431,7 +5485,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureTo
           const isDinner = dinner.list.includes(i);
           const items = [];
           items.push(
-            <StopRow key={s.id} refEl={here ? curRef : null} time={s.time} timeColor={here ? METRO.here : isNext ? color : done ? "#6F695F" : "#3D3830"}
+            <StopRow key={s.id} refEl={here ? curRef : null} time={s.time} timeColor={here ? METRO.here : s.shifted && delay > 0 ? "#C2410C" : isNext ? color : done ? "#6F695F" : "#3D3830"}
               lineTop={i === 0 && !prevHotel ? null : lineC} lineBottom={lineAfter}
               dot={here ? <span style={{ width: 26, height: 26, boxSizing: "border-box", borderRadius: 13, background: "#fff", border: `7px solid ${METRO.here}` }} />
                 : hotel ? <span style={capsule(METRO.ink)} />
@@ -5446,7 +5500,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureTo
                       {st.source === "time" ? "推估" : "我在這"}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: "#3D3830" }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : `預計 ${minutesToTimeStr(timeToMinutes(s.time) + parseStayDuration(s.stay))} 出發`}</div>
+                  <div style={{ fontSize: 12, color: "#3D3830" }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : delay > 0 ? `原定 ${minutesToTimeStr(timeToMinutes(s.time) + parseStayDuration(s.stay))} 出發・已超過，出發時按下方按鈕` : `預計 ${minutesToTimeStr(timeToMinutes(s.time) + parseStayDuration(s.stay))} 出發`}</div>
                   {s.desc && <div style={{ fontSize: 12, color: "#0B5E36", fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>觀光：{s.desc}</div>}
                   <div style={{ display: "flex", gap: 6, marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
                     {i < spots.length - 1 && (
@@ -5782,7 +5836,7 @@ function App() {
     if (spotA.actualDepTime) {
       passMinutes = timeToMinutes(spotA.actualDepTime);
     } else if (spotA.time) {
-      passMinutes = timeToMinutes(spotA.time) + parseStayDuration(spotA.stay || "1.5 hr");
+      passMinutes = timeToMinutes(spotA.time) + parseStayDuration(spotA.stay || "40 min");
     }
     setChainMidpoint({ fromName: spotA.name, toName: spotB.name, toLat: spotB.lat, toLon: spotB.lon, d1km, passMinutes });
     setCopiedChain(null);
@@ -6113,7 +6167,7 @@ function App() {
         const spotId = spot.sid || `${day.dayId}-s${idx}`;
         // 停車場類景點預設停留 0 分鐘（僅停車/取車，不佔行程時間）
         const isParkingSpot = /停車場|駐車場|[Pp]arking/.test(spot.name);
-        const stayStr = stays[spotId] || (isParkingSpot ? "0 min" : "1.5 hr");
+        const stayStr = stays[spotId] || (isParkingSpot ? "0 min" : "40 min"); // 預設每站 40 分
         const stayMinutes = parseStayDuration(stayStr);
         const arrivalTimeStr = minutesToTimeStr(currentMinutes);
         let departureMinutes;

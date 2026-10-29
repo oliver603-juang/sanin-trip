@@ -5052,7 +5052,7 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit,
 }) => {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -5154,7 +5154,7 @@ const MetroTab = ({
     return () => meta.setAttribute("content", prev);
   }, [dayIdxView]);
 
-  const common = { tripData: liveData, st, now, go, back, sim, delay: live.delay };
+  const common = { tripData: liveData, st, now, go, back, sim, delay: live.delay, edit };
   return (
     <div style={{ background: METRO.bg, color: METRO.ink, minHeight: "100%", fontFamily: "'Noto Sans TC', system-ui, sans-serif" }}>
       {sim && (
@@ -5588,7 +5588,7 @@ const chipStyle = (bg, bd, fg) => ({
 });
 
 // ---- ② 當日直線路線 ----
-const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay }) => {
+const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay, edit }) => {
   const day = tripData[dayIdx];
   const spots = day.spots;
   const color = METRO.colors[dayIdx], tint = METRO.tints[dayIdx], on = METRO.onColor[dayIdx];
@@ -5624,7 +5624,12 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {isToday && <span style={hdrChip("#fff", color)}>已完成 {st.spotIdx} 站</span>}
-          <span style={hdrChip("rgba(255,255,255,.2)", on)}>{spots.length} 站・{spots[0].time} 出發</span>
+          <label style={{ ...hdrChip("rgba(255,255,255,.2)", on), gap: 4, cursor: "pointer" }}>
+            {spots.length} 站・出發
+            <input type="time" value={(edit && edit.dayStartTimes[day.dayId]) || day.defaultStart} onChange={(e) => edit && e.target.value && edit.handleDayStartTimeChange(day.dayId, e.target.value)}
+              style={{ background: "transparent", border: 0, color: on, fontFamily: MONO, fontSize: 12, fontWeight: 700, width: 78, padding: 0, colorScheme: "dark" }} />
+            ✎
+          </label>
           {risk && <span style={hdrChip(risk[1], risk[2])}>雪況 {risk[0]}</span>}
           {isToday && delay !== 0 && <span style={hdrChip(delay > 0 ? "#FFD2CC" : "#CDEBD8", delay > 0 ? "#8A1C12" : "#0B5E36")}>{delay > 0 ? `進度晚 ${delay} 分・後面已順延` : `進度早 ${-delay} 分`}</span>}
         </div>
@@ -5739,12 +5744,8 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
           }
           return items;
         })}
-        <button onClick={() => { haptic(); openDetail(day.dayId); }}
-          style={{ marginTop: 12, width: "100%", minHeight: 48, borderRadius: 14, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 13, fontWeight: 700, color: METRO.ink }}>
-          開啟詳細卡片（改停留時間・票價・記帳）
-        </button>
         <div style={{ marginTop: 10, fontSize: 11, color: METRO.sub, lineHeight: "18px" }}>
-          時間依「出發時間＋各站停留＋車程」推算。按「出發往下一站」或 GPS 進入站點 300 m 內，我的位置就前進一站。
+          時間依「出發時間＋各站停留＋車程」推算；點標題的出發時間可改。按「出發往下一站」或 GPS 進入站點 300 m 內，我的位置就前進一站。各站停留、門票在站點頁可改。
         </div>
       </div>
     </div>
@@ -5768,7 +5769,7 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 // ---- ③ 站點提醒 ----
 const StationPage = ({
   tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
-  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice,
+  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit,
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
   const copyMapCode = () => {
@@ -5819,6 +5820,63 @@ const StationPage = ({
       </div>
 
       <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {edit && (() => {
+          const stayOpts = ["0 min", "20 min", "30 min", "40 min", "1 hr", "1.5 hr", "2 hr", "3 hr"];
+          const curStay = s.stay;
+          const mode = edit.transportModes[s.id] || "car";
+          const tk = getTicket(s, edit.ticketOverrides) || { adult: 0, child: 0 };
+          const cnt = edit.getTicketCounts(s.id);
+          const hotel = isHotel(s.name);
+          const locked = !!(s.ticket && s.ticket.locked);
+          const setPrice = (k, v) => edit.setTicketOverrides((p) => ({ ...p, [s.id]: { ...(p[s.id] || { adult: 0, child: 0 }), [k]: Math.max(0, parseInt(v) || 0) } }));
+          const spent = (edit.expenses[s.id] || []).reduce((a, e) => a + (e.amount || 0), 0);
+          const inputSt = { width: 84, minHeight: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, fontFamily: MONO, fontSize: 15, fontWeight: 700, textAlign: "right", padding: "0 8px", color: METRO.ink, background: locked ? "#F7F4EE" : "#fff" };
+          const stepBtn = { width: 40, height: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 18, fontWeight: 900, color: METRO.ink };
+          return (
+            <SectionCard color="#5E584E" title="本站設定" right={spent ? `已記帳 ¥${spent.toLocaleString()}` : null}>
+              <div style={{ fontSize: 12, color: METRO.sub }}>停留時間（改了後面各站時間會重算）</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(stayOpts.includes(curStay) ? stayOpts : [...stayOpts, curStay]).map((o) => (
+                  <button key={o} onClick={() => { haptic(); edit.handleStayChangeNew(s.id, o); }}
+                    style={{ minHeight: 40, padding: "0 12px", borderRadius: 20, border: `2px solid ${o === curStay ? color : METRO.line}`, background: o === curStay ? color : "#fff", color: o === curStay ? on : METRO.ink, fontFamily: MONO, fontSize: 13, fontWeight: 700 }}>
+                    {o.replace(" min", "分").replace(" hr", "小時")}
+                  </button>
+                ))}
+              </div>
+              {next && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontSize: 12, color: METRO.sub, flex: 1 }}>往下一站的方式</div>
+                  <button onClick={() => { haptic(); edit.handleTransportToggle(s.id); }}
+                    style={{ minHeight: 40, padding: "0 14px", borderRadius: 20, border: `2px solid ${METRO.ink}`, background: mode === "car" ? METRO.ink : "#fff", color: mode === "car" ? "#fff" : METRO.ink, fontFamily: "inherit", fontSize: 13, fontWeight: 900 }}>
+                    {mode === "car" ? "🚗 開車" : "🚶 步行"}・點擊切換
+                  </button>
+                </div>
+              )}
+              <div style={{ borderTop: `1px solid ${METRO.line}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 12, color: METRO.sub }}>{hotel ? "房價（每晚）與房數" : "門票（日圓）與人數"}{locked ? "・已確認免費" : ""}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, width: 36 }}>{hotel ? "房價" : "成人"}</span>
+                  <input type="number" inputMode="numeric" value={tk.adult || ""} placeholder="0" disabled={locked} onChange={(e) => setPrice("adult", e.target.value)} style={inputSt} />
+                  <span style={{ flex: 1 }} />
+                  <button style={stepBtn} onClick={() => { haptic(); edit.updateSpotTicketCount(s.id, "adult", -1); }}>−</button>
+                  <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, width: 44, textAlign: "center" }}>{cnt.adult} {hotel ? "房" : "人"}</span>
+                  <button style={stepBtn} onClick={() => { haptic(); edit.updateSpotTicketCount(s.id, "adult", 1); }}>＋</button>
+                </div>
+                {!hotel && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, width: 36 }}>兒童</span>
+                    <input type="number" inputMode="numeric" value={tk.child || ""} placeholder="0" disabled={locked} onChange={(e) => setPrice("child", e.target.value)} style={inputSt} />
+                    <span style={{ flex: 1 }} />
+                    <button style={stepBtn} onClick={() => { haptic(); edit.updateSpotTicketCount(s.id, "child", -1); }}>−</button>
+                    <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, width: 44, textAlign: "center" }}>{cnt.child} 人</span>
+                    <button style={stepBtn} onClick={() => { haptic(); edit.updateSpotTicketCount(s.id, "child", 1); }}>＋</button>
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: METRO.sub }}>小計 ¥{(hotel ? tk.adult * cnt.adult : tk.adult * cnt.adult + tk.child * cnt.child).toLocaleString()}・「更多 › AI 估算全部票價」可自動填</div>
+              </div>
+            </SectionCard>
+          );
+        })()}
         <SectionCard color="#13804A" title="觀光提醒">
           <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。可到「詳細卡片」加筆記。"}</div>
         </SectionCard>
@@ -7285,66 +7343,25 @@ ${JSON.stringify(hotelWithDates)}
   );
   return (
     <div className={"min-h-screen bg-[#F9F7F5] " + (activeTab === "metro" ? (metroView.level === "station" ? "" : "pb-24 !bg-[#F7F4EE]") : "pb-24")}>
-      {activeTab !== "metro" && <nav className="sticky top-0 z-50 bg-[#F9F7F5]/90 backdrop-blur-md p-4 border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-full border-2 border-[#E4C2C1] overflow-hidden">
-              <img
-                src={window.APP_LOGO || "logo.jpg"}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.target.src = "https://placehold.co/100";
-                }}
-              />
-            </div>
-            <h1 className="font-black text-lg text-gray-800">
-              {window.APP_TITLE || "親子遊"}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
+      {activeTab !== "metro" && (
+        <nav className="sticky top-0 z-50 border-b" style={{ background: "#F7F4EE", borderColor: "#E6E0D5", paddingTop: "env(safe-area-inset-top)" }}>
+          <div className="flex items-center gap-2 px-4" style={{ minHeight: 56 }}>
+            <button onClick={() => setActiveTab("metro")} aria-label="回路線圖" className="w-11 h-11 rounded-full flex items-center justify-center" style={{ color: "#1F1D1A" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+            </button>
+            <div className="flex-1 font-black text-[17px]" style={{ color: "#1F1D1A" }}>{{ info: "資訊", list: "清單", stats: "統計", guard: "防雷", compare: "比價", wishlist: "願望" }[activeTab] || window.APP_TITLE}</div>
             <CurrencySwitcher
               selectedCurrency={selectedCurrency}
               exchangeRate={exchangeRate}
               isRateLoading={isRateLoading}
               setSelectedCurrency={setSelectedCurrency}
             />
-
-            {/* Auto Ticket Button */}
-            <button
-              onClick={handleEstimateTickets}
-              className={`p-2 rounded-full text-white shadow-md transition-all flex items-center justify-center w-9 h-9 ${
-                isTicketEstimating
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-[#E4C2C1] hover:brightness-110"
-              }`}
-              title="AI 估算票價"
-              disabled={isTicketEstimating}
-            >
-              {isTicketEstimating ? (
-                <Icons.Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Icons.Ticket size={18} />
-              )}
-            </button>
-
-            {/* Map FAB */}
-            <button
-              onClick={handleOpenMap}
-              className="bg-[#A9BFA8] p-2 rounded-full text-white shadow-md hover:brightness-110 transition-all flex items-center justify-center w-9 h-9"
-              title="預覽地圖"
-            >
-              <Icons.Map size={18} />
-            </button>
-
-            <button
-              onClick={() => setIsKeyModalOpen(true)}
-              className="p-2 bg-white rounded-full text-gray-400 border border-gray-200 hover:text-[#E4C2C1] hover:border-[#E4C2C1] transition-all shadow-sm"
-            >
+            <button onClick={() => setShowMore(true)} aria-label="更多" className="w-11 h-11 rounded-full flex items-center justify-center border-2 bg-white" style={{ borderColor: "#E6E0D5", color: "#5E584E" }}>
               <Icons.Settings size={20} />
             </button>
           </div>
-        </div>
-      </nav>}
+        </nav>
+      )}
       {activeTab === "metro" && (
         <MetroTab
           tripData={tripData}
@@ -7362,36 +7379,18 @@ ${JSON.stringify(hotelWithDates)}
           openSettings={() => setShowMore(true)}
           simRequest={metroSimRequest}
           launchGemini={launchGeminiPriceCheck}
-          openDetail={(dayId) => { setSelectedDay(dayId); setActiveTab("itinerary"); }}
+          openDetail={null}
+          edit={{
+            stays, handleStayChangeNew, STAY_OPTIONS: window.STAY_OPTIONS,
+            dayStartTimes, handleDayStartTimeChange,
+            transportModes, handleTransportToggle,
+            ticketOverrides, setTicketOverrides, getTicketCounts, updateSpotTicketCount,
+            expenses, handleEstimateTickets, isTicketEstimating,
+          }}
           winterRoutes={window.WINTER_ROUTES}
         />
       )}
       <main className={activeTab === "metro" ? "hidden" : "max-w-5xl mx-auto p-4 md:p-8"}>
-        {activeTab === "itinerary" && (
-          <ItineraryTab
-            tripData={tripData}
-            selectedDay={selectedDay}
-            setSelectedDay={setSelectedDay}
-            dayStartTimes={dayStartTimes}
-            handleDayStartTimeChange={handleDayStartTimeChange}
-            handleDepartureToggle={handleDepartureToggle}
-            handleTransportToggle={handleTransportToggle}
-            handleStayChangeNew={handleStayChangeNew}
-            openExpenseModal={openExpenseModal}
-            transportModes={transportModes}
-            expenses={expenses}
-            getTicketCounts={getTicketCounts}
-            updateSpotTicketCount={updateSpotTicketCount}
-            STAY_OPTIONS={window.STAY_OPTIONS}
-            ticketOverrides={ticketOverrides}
-            handleManualTicketEdit={handleManualTicketEdit}
-            isTicketEstimating={isTicketEstimating}
-            getMatchingItems={getMatchingItems}
-            scanSpotNearby={scanSpotNearby}
-            openChainFinder={openChainFinder}
-            openKeyModal={setIsKeyModalOpen}
-          />
-        )}
         {activeTab === "info" && <InfoTab />}
         {activeTab === "stats" && (
           <StatsTab
@@ -7541,7 +7540,7 @@ ${JSON.stringify(hotelWithDates)}
         <button
           onClick={() => setActiveTab("metro")}
           className={`flex flex-col items-center gap-1 p-2 min-w-[64px] ${
-            activeTab === "metro" || activeTab === "itinerary" ? "text-[#13804A]" : "hover:text-gray-900"
+            activeTab === "metro" ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><rect x="4" y="4" width="16" height="16" rx="5" /><circle cx="12" cy="4" r="1.6" fill="currentColor" /><circle cx="4" cy="12" r="1.6" fill="currentColor" /><circle cx="20" cy="14" r="2.4" fill="#E2342F" stroke="none" /></svg> 路線圖
@@ -7596,6 +7595,14 @@ ${JSON.stringify(hotelWithDates)}
               <span className="flex-1"><span className="block font-black text-[#0F3F70]">拍照比價（手機 Gemini）</span><span className="block text-xs text-[#0F3F70]/70">複製指令並開啟 Gemini，拍標價就能算台幣＋比行情＋抓地雷</span></span>
             </button>
             <div className="border-t border-gray-100 my-2" />
+            <button onClick={() => { setShowMore(false); handleOpenMap(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">🗺️</span>
+              <span className="flex-1"><span className="block font-black text-gray-800">全程地圖預覽</span><span className="block text-xs text-gray-400">在地圖上看所有站點</span></span>
+            </button>
+            <button onClick={() => { setShowMore(false); handleEstimateTickets(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">🎫</span>
+              <span className="flex-1"><span className="block font-black text-gray-800">AI 估算全部票價</span><span className="block text-xs text-gray-400">用 Gemini 填入各站門票與房價（需金鑰）</span></span>
+            </button>
             <button onClick={() => { setShowMore(false); setMetroSimRequest(Date.now()); setActiveTab("metro"); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
               <span className="text-2xl w-9 text-center">🎮</span>
               <span className="flex-1"><span className="block font-black text-gray-800">試玩旅途中畫面</span><span className="block text-xs text-gray-400">出發前預覽「我在這」的樣子</span></span>

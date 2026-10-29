@@ -1,10 +1,10 @@
-const APP_VERSION = '5'; // 與 index.html 的 ?v= 保持一致
+const APP_VERSION = '6'; // 與 index.html 的 ?v= 保持一致
 const CACHE_NAME = 'trip-2027-sanin-v' + APP_VERSION;
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './app.js?v=4',
-  './config.js?v=4',
+  './app.js?v=6',
+  './config.js?v=6',
   './manifest.json',
   './logo.jpg',
   './icon-192.png',

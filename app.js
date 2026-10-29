@@ -5032,9 +5032,16 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // 主元件
 // ============================================================================
 const MetroTab = ({
-  tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle,
+  tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
   openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes,
 }) => {
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  const showToast = (text, undo) => {
+    clearTimeout(toastTimer.current);
+    setToast({ text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3000);
+  };
   const [sim, setSim] = useState(() => {
     try { return JSON.parse(localStorage.getItem("metro_sim") || "null"); } catch (e) { return null; }
   });
@@ -5054,6 +5061,29 @@ const MetroTab = ({
     setArrivals(next);
     try { localStorage.setItem("metro_arrivals", JSON.stringify(next)); } catch (e) {}
   }, [st.source, curSpot && curSpot.id, sim]);
+  // 試玩開始／結束時，切換記憶體中的出發紀錄
+  useEffect(() => { setSimDeps(sim ? (simDeps || {}) : null); }, [!!sim]);
+  const toggleDep = (id) => {
+    if (sim) setSimDeps((p) => { const n = { ...(p || {}) }; if (n[id]) delete n[id]; else n[id] = hhmm(now); return n; });
+    else handleDepartureToggle(id);
+  };
+  // 出發／取消出發：只有旅途「當天」可按；取消要確認；出發後 6 秒內可復原
+  const depart = (dayIdx, s) => {
+    if (sim ? dayIdx !== sim.dayIdx : st.phase !== "trip" || dayIdx !== st.dayIdx) {
+      haptic(30);
+      showToast(sim ? "試玩只能操作試玩的那一天" : st.phase === "pre" ? "旅途當天（1/25 起）才會記錄出發" : "只能記錄「今天」的出發");
+      return false;
+    }
+    if (s.actualDepTime) {
+      if (!window.confirm(`取消 ${s.actualDepTime} 的出發紀錄？\n後面各站時間會改回預估。`)) return false;
+      toggleDep(s.id);
+      showToast("已取消出發紀錄");
+      return false;
+    }
+    toggleDep(s.id);
+    showToast(`已記錄 ${hhmm(now)} 從「${metroShort(s.name)}」出發`, () => toggleDep(s.id));
+    return true;
+  };
   const live = useMemo(() => applyLiveTiming(tripData, st, st.nowMin, sim ? {} : arrivals), [tripData, st, arrivals, sim]);
   const liveData = live.data;
 
@@ -5118,11 +5148,19 @@ const MetroTab = ({
         <RingHome {...common} gpsOn={gpsOn} gps={gps} enableGps={enableGps} openSettings={openSettings}
           openSim={() => setSimOpen(true)} shoppingList={shoppingList} />
       )}
-      {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} handleDepartureToggle={handleDepartureToggle} winterRoutes={winterRoutes} />}
+      {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} depart={depart} winterRoutes={winterRoutes} />}
       {view.level === "station" && (
         <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
-          handleDepartureToggle={handleDepartureToggle} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
-          scanSpotNearby={scanSpotNearby} winterRoutes={winterRoutes} />
+          depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
+          showToast={showToast} winterRoutes={winterRoutes} />
+      )}
+      {toast && (
+        <div role="status" style={{ position: "fixed", left: 16, right: 16, bottom: "calc(100px + env(safe-area-inset-bottom))", zIndex: 90, background: "#1C1B19", color: "#fff", borderRadius: 14, padding: "10px 12px 10px 16px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 6px 20px rgba(0,0,0,.3)", fontSize: 13, fontWeight: 700 }}>
+          <span style={{ flex: 1 }}>{toast.text}</span>
+          {toast.undo && (
+            <button onClick={() => { haptic(); toast.undo(); setToast(null); }} style={{ minHeight: 40, padding: "0 12px", borderRadius: 10, border: 0, background: "#FFC24D", color: METRO.ink, fontWeight: 900, fontFamily: "inherit" }}>復原</button>
+          )}
+        </div>
       )}
       {simOpen && <SimSheet sim={sim} setSim={setSim} close={() => setSimOpen(false)} tripData={tripData} />}
     </div>
@@ -5405,7 +5443,7 @@ const chipStyle = (bg, bd, fg) => ({
 });
 
 // ---- ② 當日直線路線 ----
-const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureToggle, winterRoutes, delay }) => {
+const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay }) => {
   const day = tripData[dayIdx];
   const spots = day.spots;
   const color = METRO.colors[dayIdx], tint = METRO.tints[dayIdx], on = METRO.onColor[dayIdx];
@@ -5504,7 +5542,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureTo
                   {s.desc && <div style={{ fontSize: 12, color: "#0B5E36", fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>觀光：{s.desc}</div>}
                   <div style={{ display: "flex", gap: 6, marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
                     {i < spots.length - 1 && (
-                      <PillBtn dark onClick={() => handleDepartureToggle(s.id)} style={{ background: color, borderColor: color, color: on, flex: 2 }}>
+                      <PillBtn dark onClick={() => depart(dayIdx, s)} style={{ background: color, borderColor: color, color: on, flex: 2 }}>
                         {s.actualDepTime ? "取消出發" : "出發往下一站"}
                       </PillBtn>
                     )}
@@ -5584,9 +5622,15 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 
 // ---- ③ 站點提醒 ----
 const StationPage = ({
-  tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, handleDepartureToggle,
-  openExpenseModal, openChainFinder, scanSpotNearby, winterRoutes,
+  tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
+  openExpenseModal, openChainFinder, showToast, winterRoutes, sim,
 }) => {
+  const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
+  const copyMapCode = () => {
+    haptic();
+    try { navigator.clipboard.writeText(s.mapCode.replace(/\s/g, "")); showToast(`MapCode ${s.mapCode} 已複製，可貼到租車導航`); }
+    catch (e) { showToast(`MapCode：${s.mapCode}`); }
+  };
   const day = tripData[dayIdx];
   const spots = day.spots;
   const s = spots[spotIdx];
@@ -5623,7 +5667,7 @@ const StationPage = ({
         <div style={{ fontSize: 13, opacity: 0.9 }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : `建議 ${minutesToTimeStr(depMin)} 出發`}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <a href={s.gmapLink} target="_blank" rel="noreferrer" style={hdrLink(on)}>地圖</a>
-          {s.mapCode && <span style={hdrLink(on)}>MapCode {s.mapCode}</span>}
+          {s.mapCode && <button onClick={copyMapCode} style={hdrLink(on)}>MapCode {s.mapCode} ⧉</button>}
           {spotIdx > 0 && <button onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: spotIdx - 1 }, true); }} style={{ ...hdrLink(on), marginLeft: "auto" }}>‹ 上站</button>}
           {next && <button onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: spotIdx + 1 }, true); }} style={{ ...hdrLink(on), marginLeft: spotIdx > 0 ? 0 : "auto" }}>下站 ›</button>}
         </div>
@@ -5635,18 +5679,22 @@ const StationPage = ({
         </SectionCard>
 
         <SectionCard color="#E89B00" title="購物提醒" right={matches.length ? "這站可能買得到" : `清單還有 ${unbought.length} 項`}>
-          {(matches.length ? matches : unbought.slice(0, 4)).map((it) => (
-            <button key={it.id} onClick={() => { haptic(); toggleBought(it.id); }}
-              style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 48, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
+          {(matches.length ? [...matches].sort((a, b) => a.bought - b.bought) : unbought.slice(0, 4)).map((it) => (
+            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => { haptic(); toggleBought(it.id); }}
+              style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, minHeight: 48, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
               <span style={{ width: 24, height: 24, boxSizing: "border-box", borderRadius: 6, border: `2px solid ${it.bought ? "#13804A" : "#C9C3B8"}`, background: it.bought ? "#13804A" : "#fff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{it.bought ? "✓" : ""}</span>
               <span style={{ fontSize: 14, flex: 1, textDecoration: it.bought ? "line-through" : "none", color: it.bought ? "#8C8578" : METRO.ink }}>{it.icon} {it.name}</span>
-              <span style={{ fontSize: 11, color: METRO.sub, maxWidth: 130, textAlign: "right" }}>{it.note}</span>
+              <span style={{ fontSize: 11, color: METRO.sub, maxWidth: 110, textAlign: "right" }}>{it.note}</span>
             </button>
+            {!it.bought && (
+              <a href={mapsSearchNear((it.keywords && it.keywords[0]) || it.name, s.lat, s.lon)} target="_blank" rel="noreferrer" onClick={() => haptic()}
+                style={{ minWidth: 56, minHeight: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, fontSize: 12, fontWeight: 900, color: METRO.ink, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", flexShrink: 0 }}>地圖找</a>
+            )}
+            </div>
           ))}
           {!matches.length && !unbought.length && <div style={{ fontSize: 13, color: METRO.sub }}>清單都買齊了</div>}
-          <div style={{ display: "flex", gap: 6 }}>
-            <PillBtn onClick={() => scanSpotNearby(s.lat, s.lon, s.name)}>AI 找附近哪裡買</PillBtn>
-          </div>
+          <div style={{ fontSize: 11, color: METRO.sub }}>「地圖找」會在 Google 地圖搜這站附近；想問營業時間、有沒有貨，可在地圖裡直接問 Gemini。打勾會存在手機，離線也記得。</div>
         </SectionCard>
 
         {next && (
@@ -5714,10 +5762,14 @@ const StationPage = ({
 
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: `linear-gradient(rgba(247,244,238,0), ${METRO.bg} 30%)`, display: "flex", gap: 8 }}>
         {next ? (
-          <PillBtn dark onClick={() => { handleDepartureToggle(s.id); if (!s.actualDepTime) go({ level: "day", day: dayIdx }, "replaceParent"); }}
-            style={{ flex: 3, minHeight: 56, borderRadius: 16, fontSize: 15, background: s.actualDepTime ? "#fff" : color, color: s.actualDepTime ? METRO.ink : on, borderColor: s.actualDepTime ? METRO.line : color }}>
-            {s.actualDepTime ? `取消出發紀錄（${s.actualDepTime}）` : "出發往下一站"}
-          </PillBtn>
+          isActiveDay ? (
+            <PillBtn dark onClick={() => { if (depart(dayIdx, s)) go({ level: "day", day: dayIdx }, "replaceParent"); }}
+              style={{ flex: 3, minHeight: 56, borderRadius: 16, fontSize: 15, background: s.actualDepTime ? "#fff" : color, color: s.actualDepTime ? METRO.ink : on, borderColor: s.actualDepTime ? METRO.line : color }}>
+              {s.actualDepTime ? `已於 ${s.actualDepTime} 出發・取消` : "出發往下一站"}
+            </PillBtn>
+          ) : (
+            <PillBtn dark href={mapsDir(next.lat, next.lon)} style={{ flex: 3, minHeight: 56, borderRadius: 16, fontSize: 15 }}>導航到下一站</PillBtn>
+          )
         ) : (
           <PillBtn dark onClick={() => go({ level: "day", day: dayIdx }, "replaceParent")} style={{ flex: 3, minHeight: 56, borderRadius: 16 }}>回今日路線</PillBtn>
         )}
@@ -5791,6 +5843,8 @@ function App() {
   const [dayStartTimes, setDayStartTimes] = useState(() =>
     JSON.parse(localStorage.getItem("start_times") || "{}")
   );
+  // 試玩模式的出發紀錄只放記憶體，不寫入真實行程
+  const [simDeps, setSimDeps] = useState(null);
   const [actualDepartures, setActualDepartures] = useState(() =>
     JSON.parse(localStorage.getItem("departures") || "{}")
   );
@@ -5915,6 +5969,12 @@ function App() {
     const unbought = shoppingList.filter(i => !i.bought);
     if (unbought.length === 0) { alert("購物清單已全部買完！"); return; }
 
+    const mapsFallback = "https://www.google.com/maps/search/" + encodeURIComponent(unbought[0].keywords?.[0] || unbought[0].name) + "/@" + lat + "," + lon + ",14z";
+    if (!navigator.onLine) {
+      setShowShoppingPanel(true);
+      setNearbyResults({ stores: [], notes: [], raw: "目前沒有網路，AI 搜尋暫停。可先用 Google 地圖（有離線地圖時也能搜）。", fallbackUrl: mapsFallback });
+      return;
+    }
     setScanningNearby(true);
     setNearbyResults(null);
 
@@ -5935,7 +5995,10 @@ function App() {
       "只輸出 STORE| 和 NOTE| 開頭的行，不要其他文字。";
 
     try {
+      const ctrl = new AbortController();
+      const killer = setTimeout(() => ctrl.abort(), 25000); // 訊號差時 25 秒放棄，改給地圖備案
       const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey, {
+        signal: ctrl.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5943,6 +6006,7 @@ function App() {
           tools: [{ google_search: {} }],
         }),
       });
+      clearTimeout(killer);
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
@@ -5979,7 +6043,7 @@ function App() {
         setNearbyResults({ stores: [], notes: [], raw: text, fallbackUrl: "https://www.google.com/maps/search/藥妝+ドラッグストア/@" + lat + "," + lon + ",16z" });
       }
     } catch (e) {
-      setNearbyResults({ stores: [], notes: [], raw: "搜尋失敗：" + e.message, fallbackUrl: null });
+      setNearbyResults({ stores: [], notes: [], raw: e.name === "AbortError" ? "網路太慢，AI 搜尋逾時。" : "搜尋失敗：" + e.message, fallbackUrl: mapsFallback });
     }
     setScanningNearby(false);
   };
@@ -6073,6 +6137,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem("departures", JSON.stringify(actualDepartures));
   }, [actualDepartures]);
+  // 出發前按到的「出發」都是測試，旅程開始前自動清掉，避免 1/25 當天時間錯亂
+  useEffect(() => {
+    const [Y, M, D] = METRO.tripStart;
+    if (Date.now() < new Date(Y, M, D).getTime()) {
+      if (Object.keys(actualDepartures).length) setActualDepartures({});
+      try { localStorage.removeItem("metro_arrivals"); } catch (e) {}
+    }
+  }, []);
   useEffect(() => {
     localStorage.setItem("stays", JSON.stringify(stays));
   }, [stays]);
@@ -6173,8 +6245,9 @@ function App() {
         let departureMinutes;
         let isDeparted = false;
         let actualDepTime = null;
-        if (actualDepartures[spotId]) {
-          actualDepTime = actualDepartures[spotId];
+        const depSrc = simDeps || actualDepartures;
+        if (depSrc[spotId]) {
+          actualDepTime = depSrc[spotId];
           departureMinutes = timeToMinutes(actualDepTime);
           isDeparted = true;
         } else {
@@ -6240,7 +6313,7 @@ function App() {
       });
       return { ...day, defaultStart: resolvedStart, spots: newSpots };
     });
-  }, [dayStartTimes, actualDepartures, stays, transportModes]);
+  }, [dayStartTimes, actualDepartures, simDeps, stays, transportModes]);
 
   // --- 統計數據計算 ---
   const dailyStats = useMemo(() => {
@@ -7031,6 +7104,8 @@ ${JSON.stringify(hotelWithDates)}
           shoppingList={shoppingList}
           toggleBought={toggleBought}
           handleDepartureToggle={handleDepartureToggle}
+          simDeps={simDeps}
+          setSimDeps={setSimDeps}
           openExpenseModal={openExpenseModal}
           openChainFinder={openChainFinder}
           scanSpotNearby={scanSpotNearby}
@@ -7276,7 +7351,7 @@ ${JSON.stringify(hotelWithDates)}
                     {nearbyResults.fallbackUrl && (
                       <a href={nearbyResults.fallbackUrl} target="_blank" rel="noreferrer"
                         className="block mt-3 py-3 bg-gray-900 text-white text-center rounded-xl font-bold text-sm">
-                        🔍 在 Google Maps 搜附近藥妝店
+                        🔍 改用 Google 地圖搜附近
                       </a>
                     )}
                   </div>

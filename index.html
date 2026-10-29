@@ -4,13 +4,14 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>2027 山陰鳥取冬遊 | San-in Winter Trip</title>
 
     <link rel="manifest" href="manifest.json" />
-    <meta name="theme-color" content="#A2C4C9" />
-    <link rel="apple-touch-icon" href="icon-192.png" />
+    <meta name="theme-color" content="#F7F4EE" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="icon-192.png" />
 
     <script
@@ -42,6 +43,11 @@
     />
 
     <style>
+      @keyframes metroPulse { 0% { transform: scale(.6); opacity: .55 } 100% { transform: scale(1.7); opacity: 0 } }
+      .metro-pulse { animation: metroPulse 1.8s ease-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .metro-pulse { animation: none } }
+      html { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+      button { touch-action: manipulation; }
       /* --- 莫蘭迪粉色系主題變數 --- */
       :root {
         --bg-main: #f9f7f5; /* 溫暖米白背景 */
@@ -131,15 +137,15 @@
     <div id="root"></div>
 	<!-- 版本號：每次改 config.js / app.js 就把 v= 加 1（三處都要改成同一個數字），
 	     瀏覽器與 PWA 就會自動抓新檔，不必再手動清快取 -->
-	<script src="config.js?v=3"></script>
+	<script src="config.js?v=4"></script>
 
-    	<script type="text/babel" data-presets="env,react" src="app.js?v=3"></script>
+    	<script type="text/babel" data-presets="env,react" src="app.js?v=4"></script>
 
     <script>
 		  if ("serviceWorker" in navigator) {
 			window.addEventListener("load", () => {
 			  navigator.serviceWorker
-				.register("service-worker.js?v=3")
+				.register("service-worker.js?v=4")
 				.then((reg) => {
 				  console.log("PWA Service Worker registered!", reg);
 				  reg.update();

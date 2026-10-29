@@ -5219,7 +5219,100 @@ const SimSheet = ({ sim, setSim, close, tripData }) => {
 };
 
 // ---- ① 首頁：環狀路線圖 ----
+// 🩹 順路補給：以「目前位置」在 Google 地圖搜尋（地圖自己定位，不需要本 App 的 GPS 權限）
+const SOS_ITEMS = [
+  ["💊", "藥局", "ドラッグストア"],
+  ["🏪", "超商", "コンビニ"],
+  ["⛽", "加油站", "ガソリンスタンド"],
+  ["🚻", "廁所", "トイレ"],
+  ["🅿️", "停車場", "駐車場"],
+  ["🏧", "ATM", "セブン銀行 ATM"],
+  ["🏥", "醫院・急診", "病院 救急"],
+  ["🍼", "嬰幼兒用品", "西松屋"],
+];
+const mapsSearchHere = (q) => "https://www.google.com/maps/search/" + encodeURIComponent(q);
+const Sheet = ({ title, close, children }) => (
+  <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 80, display: "flex", alignItems: "flex-end" }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxHeight: "85dvh", overflowY: "auto", background: "#fff", borderRadius: "24px 24px 0 0", padding: "14px 16px calc(18px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 12, color: METRO.ink, fontFamily: "'Noto Sans TC', system-ui, sans-serif" }}>
+      <div style={{ width: 40, height: 4, borderRadius: 2, background: METRO.past, alignSelf: "center" }} />
+      <div style={{ fontSize: 17, fontWeight: 900 }}>{title}</div>
+      {children}
+    </div>
+  </div>
+);
+const SosSheet = ({ close }) => (
+  <Sheet title="順路補給・急用" close={close}>
+    <div style={{ fontSize: 12, color: METRO.sub }}>用目前位置在 Google 地圖搜尋最近的店，開車時請讓副駕操作</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+      {SOS_ITEMS.map(([ic, name, q]) => (
+        <a key={q} href={mapsSearchHere(q)} target="_blank" rel="noreferrer" onClick={() => haptic()}
+          style={{ minHeight: 56, borderRadius: 14, border: `2px solid ${METRO.line}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", textDecoration: "none", color: METRO.ink }}>
+          <span style={{ fontSize: 24 }}>{ic}</span>
+          <span style={{ display: "flex", flexDirection: "column" }}><span style={{ fontSize: 14, fontWeight: 900 }}>{name}</span><span style={{ fontSize: 11, color: METRO.sub }}>{q}</span></span>
+        </a>
+      ))}
+    </div>
+    <div style={{ fontSize: 11, color: METRO.sub }}>日本緊急電話：警察 110・救護車／消防 119。租車故障請打 NIPPON 車上貼的 24 小時專線。</div>
+  </Sheet>
+);
+const CHECKOUT_ITEMS = ["護照・錢包", "車鑰匙・ETC 卡", "充電線・行動電源", "小孩外套・手套", "冰箱裡的食物", "浴室・榻榻米上的東西", "停車場付費／取車"];
+const HotelSheet = ({ dayIdx, close, tripData }) => {
+  const hotels = window.HOTEL_INFO || [];
+  const tonight = hotels[dayIdx] || null;
+  const last = dayIdx > 0 ? hotels[dayIdx - 1] : null;
+  const [checked, setChecked] = useState(() => { try { return JSON.parse(localStorage.getItem("metro_checkout") || "{}"); } catch (e) { return {}; } });
+  const key = (i) => dayIdx + "-" + i;
+  const toggle = (i) => setChecked((p) => { const n = { ...p, [key(i)]: !p[key(i)] }; try { localStorage.setItem("metro_checkout", JSON.stringify(n)); } catch (e) {} return n; });
+  const HotelCard = ({ h, label, color }) => h ? (
+    <div style={{ background: "#F7F4EE", borderRadius: 16, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ height: 22, padding: "0 8px", borderRadius: 11, background: color, color: "#fff", fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center" }}>{label}</span>
+        <span style={{ fontSize: 12, color: METRO.sub }}>{h.day}</span>
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 900 }}>{h.name}</div>
+      <div style={{ fontSize: 12, color: METRO.sub, userSelect: "all" }}>{h.jpName}<br />{h.jpAddress}</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {h.tel && <PillBtn dark href={"tel:" + h.tel.replace(/-/g, "")}>📞 {h.tel}</PillBtn>}
+        <PillBtn href={mapsDir(h.lat, h.lon)}>導航過去</PillBtn>
+      </div>
+    </div>
+  ) : null;
+  return (
+    <Sheet title="飯店快捷" close={close}>
+      <HotelCard h={tonight} label="今晚" color="#7B52AE" />
+      <HotelCard h={last} label="昨晚（折返拿東西）" color="#5E584E" />
+      {!tonight && !last && <div style={{ fontSize: 13 }}>今天沒有住宿（回程日）</div>}
+      {last && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 4 }}>退房檢查</div>
+          {CHECKOUT_ITEMS.map((t, i) => (
+            <button key={i} onClick={() => { haptic(); toggle(i); }} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
+              <span style={{ width: 22, height: 22, boxSizing: "border-box", borderRadius: 6, border: `2px solid ${checked[key(i)] ? "#13804A" : "#C9C3B8"}`, background: checked[key(i)] ? "#13804A" : "#fff", color: "#fff", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>{checked[key(i)] ? "✓" : ""}</span>
+              <span style={{ fontSize: 14, textDecoration: checked[key(i)] ? "line-through" : "none", color: checked[key(i)] ? "#8C8578" : METRO.ink }}>{t}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  );
+};
+// Day 6 還車倒數：進入最後一天且剩下 ≤3 站（或已過 12:00）時啟用
+const returnMode = (st, tripData) => {
+  if (st.phase !== "trip") return null;
+  const last = tripData.length - 1;
+  if (st.dayIdx !== last) return null;
+  const spots = tripData[last].spots;
+  const ret = spots.findIndex((s) => /還車/.test(s.name));
+  if (ret < 0) return null;
+  if (!(ret - st.spotIdx <= 3 || st.nowMin >= 12 * 60)) return null;
+  const retTime = (window.CAR_RENTAL_INFO && window.CAR_RENTAL_INFO.returnTime) || "17:00";
+  const left = timeToMinutes(retTime) - st.nowMin;
+  return { retIdx: ret, retTime, left, spot: spots[ret] };
+};
 const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim, delay }) => {
+  const [sheet, setSheet] = useState(null); // "sos" | "hotel"
+  const rm = returnMode(st, tripData);
+  const [fuelDone, setFuelDone] = useState(() => localStorage.getItem("metro_fuel") === "1");
   const { flat } = st;
   const N = flat.length;
   const P = ringGeom.P;
@@ -5304,7 +5397,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
           <div style={{ fontSize: 14, fontWeight: 900 }}>旅程路線圖</div>
           <div style={{ fontSize: 11, color: METRO.sub }}>逆時針一圈・點路線看當日站點</div>
         </div>
-        <div style={{ position: "relative", width: "100%", aspectRatio: `${RING.W} / ${RING.H}`, maxHeight: "calc(100dvh - 330px)", minHeight: 360, margin: "0 auto" }}>
+        <div style={{ position: "relative", width: "100%", aspectRatio: `${RING.W} / ${RING.H}`, maxHeight: "calc(100dvh - 430px)", minHeight: 300, margin: "0 auto" }}>
           <svg viewBox={`0 0 ${RING.W} ${RING.H}`} preserveAspectRatio="xMidYMid meet" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
             {/* 各日路線 */}
             {dayRanges.map((r, di) => (
@@ -5399,6 +5492,15 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
                 </span>
                 <span style={{ fontSize: 11, color: "#3D3830" }}>首日：{today.title}</span>
               </>
+            ) : rm ? (
+              <>
+                <span style={{ fontSize: 11, fontWeight: 900, color: "#8A1C12" }}>距 {rm.retTime} 還車</span>
+                <span style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, lineHeight: "34px", color: rm.left < 60 ? "#E2342F" : METRO.ink }}>{rm.left >= 0 ? `${Math.floor(rm.left / 60)}:${String(rm.left % 60).padStart(2, "0")}` : "已過"}</span>
+                  {rm.left >= 0 && <span style={{ fontSize: 12, fontWeight: 900 }}>小時</span>}
+                </span>
+                <span style={{ fontSize: 11, color: "#3D3830" }}>{fuelDone ? "⛽ 已加滿油" : "⛽ 上橋前先加滿油"}・第 {st.spotIdx + 1}/{spots.length} 站</span>
+              </>
             ) : (
               <>
                 <span style={{ fontSize: 19, fontWeight: 900, lineHeight: "24px" }}>{today.title}</span>
@@ -5415,9 +5517,25 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
         </div>
       </div>
 
-      {/* 現在 → 下一站 */}
+      {/* 飯店快捷 ＋ 還車加油 */}
+      {!isPre && !isDone && (
+        <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
+          <button onClick={() => { haptic(); setSheet("hotel"); }} style={{ flex: 1, minHeight: 40, borderRadius: 20, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 12, fontWeight: 900, color: METRO.ink, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 10px", overflow: "hidden" }}>
+            <span>🏨</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(window.HOTEL_INFO || [])[st.dayIdx] ? `今晚 ${(window.HOTEL_INFO || [])[st.dayIdx].location}` : "昨晚飯店・退房檢查"}</span>
+          </button>
+          {rm && (
+            <>
+              <a href={mapsSearchHere("ガソリンスタンド")} target="_blank" rel="noreferrer" onClick={() => haptic()} style={{ minHeight: 40, borderRadius: 20, border: "2px solid #E2342F", background: fuelDone ? "#fff" : "#FFD2CC", color: "#8A1C12", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", padding: "0 12px", textDecoration: "none" }}>⛽ 找加油站</a>
+              <button onClick={() => { haptic(); const v = !fuelDone; setFuelDone(v); localStorage.setItem("metro_fuel", v ? "1" : "0"); }} style={{ minHeight: 40, borderRadius: 20, border: `2px solid ${fuelDone ? "#13804A" : METRO.line}`, background: fuelDone ? "#13804A" : "#fff", color: fuelDone ? "#fff" : METRO.ink, fontFamily: "inherit", fontSize: 12, fontWeight: 900, padding: "0 12px" }}>{fuelDone ? "✓ 收據" : "📸 收據"}</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 現在 → 下一站 ＋ 順路補給 */}
+      <div style={{ display: "flex", gap: 8, margin: "8px 16px 0" }}>
       <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }}
-        style={{ margin: "8px 16px 0", minHeight: 68, background: "#1C1B19", borderRadius: 18, padding: "8px 14px", color: "#fff", display: "flex", alignItems: "center", gap: 10, border: 0, fontFamily: "inherit", textAlign: "left" }}>
+        style={{ flex: 1, minWidth: 0, minHeight: 68, background: "#1C1B19", borderRadius: 18, padding: "8px 14px", color: "#fff", display: "flex", alignItems: "center", gap: 10, border: 0, fontFamily: "inherit", textAlign: "left" }}>
         <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 11, color: "#FF8A80", fontWeight: 900 }}>
             {isPre ? "起點" : st.source === "hotel" ? "出發前・在飯店" : st.moving ? "移動中・剛離開" : st.source === "time" ? "推估位置" : st.source === "gps" ? "GPS 定位・我在這" : "我在這"}
@@ -5430,6 +5548,13 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
           <span style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{next ? metroShort(next.name) : "休息"}</span>
         </span>
       </button>
+      <button aria-label="順路補給" onClick={() => { haptic(); setSheet("sos"); }}
+        style={{ width: 64, minHeight: 68, borderRadius: 18, border: 0, background: "#E2342F", color: "#fff", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, flexShrink: 0 }}>
+        <span style={{ fontSize: 22, lineHeight: "24px" }}>🩹</span><span style={{ fontSize: 11, fontWeight: 900 }}>補給</span>
+      </button>
+      </div>
+      {sheet === "sos" && <SosSheet close={() => setSheet(null)} />}
+      {sheet === "hotel" && <HotelSheet dayIdx={st.dayIdx} tripData={tripData} close={() => setSheet(null)} />}
 
       {/* 提醒膠囊 */}
       <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>

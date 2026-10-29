@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>2027 山陰鳥取冬遊 | Sanin Winter Trip</title>
+    <title>2027 山陰鳥取冬遊 | San-in Winter Trip</title>
 
     <link rel="manifest" href="manifest.json" />
     <meta name="theme-color" content="#A2C4C9" />
@@ -21,34 +21,50 @@
       crossorigin
       src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
     ></script>
-    <script src="https://unpkg.com/@babel/standalone@7.26.9/babel.min.js"></script>
+    	<script src="https://unpkg.com/@babel/standalone@7.26.9/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script
       type="text/javascript"
       src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"
     ></script>
+
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap"
       rel="stylesheet"
     />
 
     <style>
+      /* --- 莫蘭迪粉色系主題變數 --- */
       :root {
-        --bg-main: #f9f7f5;
+        --bg-main: #f9f7f5; /* 溫暖米白背景 */
         --bg-glass: rgba(255, 255, 255, 0.85);
-        --card-bg: #ffffff;
-        --text-main: #4a4a4a;
-        --text-secondary: #8c8c8c;
-        --accent-pink: #e4c2c1;
+        --card-bg: #ffffff; /* 純白卡片 */
+
+        --text-main: #4a4a4a; /* 深灰主字 */
+        --text-secondary: #8c8c8c; /* 淺灰副字 */
+
+        /* Morandi Colors */
+        --accent-pink: #e4c2c1; /* 莫蘭迪粉 (主按鈕) */
         --accent-pink-hover: #d69e9d;
-        --accent-green: #a9bfa8;
+
+        --accent-green: #a9bfa8; /* 莫蘭迪綠 (導航/地圖) */
         --accent-green-hover: #8fa68e;
-        --accent-blue: #a2c4c9;
-        --accent-yellow: #e8d595;
+
+        --accent-blue: #a2c4c9; /* 莫蘭迪藍 (資訊) */
+        --accent-yellow: #e8d595; /* 莫蘭迪黃 (亮點) */
+
         --border-color: #efefef;
       }
+
+      /* --- 基礎樣式 --- */
       body {
         font-family: "Noto Sans TC", sans-serif;
         background-color: var(--bg-main);
@@ -57,39 +73,82 @@
         background-image: radial-gradient(#e8e8e8 1px, transparent 1px);
         background-size: 20px 20px;
       }
+
+      /* 玻璃擬態/卡片樣式優化 */
       .glass-panel {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); /* 柔和陰影 */
       }
-      .font-mono {
-        font-family: "JetBrains Mono", monospace;
+
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
       }
-      ::-webkit-scrollbar { width: 0; height: 0; }
-      .no-scrollbar::-webkit-scrollbar { display: none; }
-      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      .animate-in { animation: fade-in 0.5s ease-out; }
-      .fade-in { animation-name: fade-in; }
-      @keyframes pulse-soft { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
-      .animate-pulse-soft { animation: pulse-soft 2s infinite; }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      /* 輸入框樣式重置為淺色 */
+      input,
+      select,
+      textarea {
+        background-color: #f3f4f6 !important; /* bg-gray-100 */
+        color: #374151 !important; /* text-gray-700 */
+        border: 1px solid #e5e7eb !important;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent-pink) !important;
+        background-color: #fff !important;
+      }
+
+      /* Loading 動畫 */
+      .typing-indicator span {
+        animation: blink 1.4s infinite both;
+      }
+      .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes blink {
+        0% {
+          opacity: 0.2;
+        }
+        20% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0.2;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <script src="config.js"></script>
+	<!-- 版本號：每次改 config.js / app.js 就把 v= 加 1（三處都要改成同一個數字），
+	     瀏覽器與 PWA 就會自動抓新檔，不必再手動清快取 -->
+	<script src="config.js?v=3"></script>
 
-    <script type="text/babel" data-presets="env,react" src="app.js"></script>
+    	<script type="text/babel" data-presets="env,react" src="app.js?v=3"></script>
 
     <script>
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker
-            .register("service-worker.js")
-            .then((reg) => console.log("PWA Service Worker registered!", reg))
-            .catch((err) => console.log("PWA registration failed:", err));
-        });
-      }
-    </script>
+		  if ("serviceWorker" in navigator) {
+			window.addEventListener("load", () => {
+			  navigator.serviceWorker
+				.register("service-worker.js?v=3")
+				.then((reg) => {
+				  console.log("PWA Service Worker registered!", reg);
+				  reg.update();
+				})
+				.catch((err) => console.log("PWA registration failed:", err));
+			});
+		  }
+		</script>
+	  </body>
+	</html>
   </body>
 </html>

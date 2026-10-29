@@ -122,6 +122,8 @@ const FREE_SPOT_PATTERNS = [
   /商店街/, /アーケード/, /Mall/i, /百貨/, /丸井/, /AEON/i, /イオン/,
   /2nd\s*Street/i, /セカンドストリート/, /Treasure Factory/i, /マンガ倉庫/, /Otakara/i, /お宝/, /御宝/,
   /LAMU/i, /MaxValu/i, /The Big/i, /youme/i, /HANDS/i, /LOFT/i, /Usagiya/i, /C-pla/i, /Shin Ajiso/i, /NAGASAWA/i,
+  // 山陰版補充：商店、紀念品店、戶外用品店、接駁、免費戶外區
+  /帆布/, /意匠/, /播産館/, /賣店/, /売店/, /茶店/, /ハイマートベルク/, /アウトドア/, /PenStyle/i, /接泊/, /接駁/, /綠洲/, /西松屋/, /BAZAAR/i, /永旺/, /馬場/,
 ];
 const isFreeSpot = (name) => {
   if (!name) return false;
@@ -162,8 +164,15 @@ const CATEGORY_META = {
 const catMeta = (key) => CATEGORY_META[key] || CATEGORY_META.other;
 
 // 門票取得：config 設 locked:true 的票價為「確定價」（免費或已查證），AI 估算/手動覆蓋均不生效
-const getTicket = (spot, overrides) =>
-  spot.ticket && spot.ticket.locked ? spot.ticket : (overrides[spot.id] || spot.ticket);
+// 商店／停車場／交通／餐廳一律視為免門票：只有使用者手動輸入（manual）的價格才算數，
+// AI 估算或舊資料殘留的金額每次載入都直接忽略（等於自動清洗，不必跑遷移）
+const isManualTicket = (o) => !!o && (o.manual === true || (!!o.currency && !o.est));
+const getTicket = (spot, overrides) => {
+  if (spot.ticket && spot.ticket.locked) return spot.ticket;
+  const o = overrides[spot.id];
+  if (isFreeSpot(spot.name) && !isHotel(spot.name)) return isManualTicket(o) ? o : null;
+  return o || spot.ticket;
+};
 
 // ═══ Gemini Model Fallback Chain ═══
 const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
@@ -5772,6 +5781,8 @@ const StationPage = ({
   openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit,
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
+  const [ticketOpen, setTicketOpen] = useState(false);
+  useEffect(() => setTicketOpen(false), [dayIdx, spotIdx]);
   const copyMapCode = () => {
     haptic();
     try { navigator.clipboard.writeText(s.mapCode.replace(/\s/g, "")); showToast(`MapCode ${s.mapCode} 已複製，可貼到租車導航`); }
@@ -5828,7 +5839,9 @@ const StationPage = ({
           const cnt = edit.getTicketCounts(s.id);
           const hotel = isHotel(s.name);
           const locked = !!(s.ticket && s.ticket.locked);
-          const setPrice = (k, v) => edit.setTicketOverrides((p) => ({ ...p, [s.id]: { ...(p[s.id] || { adult: 0, child: 0 }), [k]: Math.max(0, parseInt(v) || 0) } }));
+          const setPrice = (k, v) => edit.setTicketOverrides((p) => ({ ...p, [s.id]: { ...(p[s.id] || { adult: 0, child: 0 }), [k]: Math.max(0, parseInt(v) || 0), manual: true } }));
+          const freeKind = !hotel && isFreeSpot(s.name);
+          const showTicket = hotel || !freeKind || isManualTicket(edit.ticketOverrides[s.id]) || ticketOpen;
           const spent = (edit.expenses[s.id] || []).reduce((a, e) => a + (e.amount || 0), 0);
           const inputSt = { width: 84, minHeight: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, fontFamily: MONO, fontSize: 15, fontWeight: 700, textAlign: "right", padding: "0 8px", color: METRO.ink, background: locked ? "#F7F4EE" : "#fff" };
           const stepBtn = { width: 40, height: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 18, fontWeight: 900, color: METRO.ink };
@@ -5852,8 +5865,13 @@ const StationPage = ({
                   </button>
                 </div>
               )}
-              <div style={{ borderTop: `1px solid ${METRO.line}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 12, color: METRO.sub }}>{hotel ? "房價（每晚）與房數" : "門票（日圓）與人數"}{locked ? "・已確認免費" : ""}</div>
+              {!showTicket && (
+                <button onClick={() => { haptic(); setTicketOpen(true); }} style={{ alignSelf: "flex-start", minHeight: 32, padding: "0 10px", borderRadius: 16, border: `1px dashed ${METRO.past}`, background: "transparent", color: METRO.sub, fontFamily: "inherit", fontSize: 11, fontWeight: 700 }}>
+                  商店／交通不收門票・➕ 有特展或入場費才加
+                </button>
+              )}
+              {showTicket && <div style={{ borderTop: `1px solid ${METRO.line}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 12, color: METRO.sub }}>{hotel ? "房價（每晚）與房數" : "門票（日圓）與人數"}{locked ? "・已確認免費" : freeKind ? "・手動輸入的入場費" : ""}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, width: 36 }}>{hotel ? "房價" : "成人"}</span>
                   <input type="number" inputMode="numeric" value={tk.adult || ""} placeholder="0" disabled={locked} onChange={(e) => setPrice("adult", e.target.value)} style={inputSt} />
@@ -5872,13 +5890,13 @@ const StationPage = ({
                     <button style={stepBtn} onClick={() => { haptic(); edit.updateSpotTicketCount(s.id, "child", 1); }}>＋</button>
                   </div>
                 )}
-                <div style={{ fontSize: 12, color: METRO.sub }}>小計 ¥{(hotel ? tk.adult * cnt.adult : tk.adult * cnt.adult + tk.child * cnt.child).toLocaleString()}・「更多 › AI 估算全部票價」可自動填</div>
-              </div>
+                <div style={{ fontSize: 12, color: METRO.sub }}>小計 ¥{(hotel ? tk.adult * cnt.adult : tk.adult * cnt.adult + tk.child * cnt.child).toLocaleString()}{freeKind ? "" : "・「更多 › AI 估算全部票價」可自動填"}</div>
+              </div>}
             </SectionCard>
           );
         })()}
         <SectionCard color="#13804A" title="觀光提醒">
-          <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。可到「詳細卡片」加筆記。"}</div>
+          <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。"}</div>
         </SectionCard>
 
         <SectionCard color="#E89B00" title="購物提醒" right={matches.length ? "這站可能買得到" : `清單還有 ${unbought.length} 項`}>
@@ -7118,7 +7136,9 @@ function App() {
         const prompt = `請用 Google Search 查詢以下旅遊景點的【最新門票價格】。
 如果該景點需要門票，請回傳成人票與兒童票(6-12歲)的價格。
 幣值請根據景點所在國家（日本用 JPY、台灣用 TWD）。
-如果該景點免費(如公園、街道、車站、購物店)，請不要回傳該項目。
+只針對「封閉式收費景點」回傳：博物館、美術館、動物園、水族館、城郭天守閣、滑雪場、主題樂園、需付費入場的科學館。
+以下一律視為免費、不要回傳：百貨商場（AEON、umie、ゆめタウン）、商店街與觀光街區本身（倉敷美觀地區、柯南小鎮街道）、二手店、文具店、戶外用品店、超市、便利商店、餐廳、車站、機場、停車場、開放式自然景觀（鳥取砂丘砂地本身）。
+嚴禁把商場內的個別付費設施（摩天輪、遊樂區、特展）、餐飲或停車費當成該地點的門票。
 請務必查詢最新資訊，不要猜測。
 
 景點列表:

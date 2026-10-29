@@ -4759,11 +4759,975 @@ const CompareTab = ({ aiLoading, setAiLoading, openKeyModal, twdJpyRate }) => {
 // 4. 主應用程式 (App) - 整合所有邏輯
 // ==========================================
 
+// ============================================================================
+// 🚇 METRO HOME（捷運路線圖首頁：環狀路線 → 當日直線 → 站點提醒）
+//    針對 Pixel 9a（Chrome Android，CSS 視窗約 412×915、DPR 2.625、手勢返回）調校
+// ============================================================================
+const METRO = {
+  bg: "#F7F4EE",
+  ink: "#1F1D1A",
+  sub: "#5E584E",
+  line: "#E6E0D5",
+  here: "#E2342F",
+  past: "#CFC9BE",
+  colors: ["#1767B3", "#D61F35", "#13804A", "#E89B00", "#7B52AE", "#A86B25"],
+  tints: ["#B9D2EA", "#F2B7BF", "#A9D6BB", "#F6D899", "#CDBCE2", "#E2CBAE"],
+  onColor: ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#1F1D1A", "#FFFFFF", "#FFFFFF"],
+  tripStart: [2027, 0, 25], // 1/25（月份 0 起算）
+  returnFlight: "19:00",
+};
+const MONO = "'Roboto Mono', 'JetBrains Mono', ui-monospace, monospace";
+const SUPERMARKET_RE = /AEON|永旺|イオン|MaxValu|マックスバリュ|The Big|ザ・ビッグ|LAMU|ラ・ムー|Ajiso|新鮮館|youme|ゆめタウン|umie|スーパー|超市|業務/i;
+const MINOR_RE = /^步行到|^接泊到|停車場|駐車場|[Pp]arking/;
+const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const metroShort = (name) => {
+  let n = (name || "").replace(/^步行到\s*|^接泊到\s*/, "").replace(/#/g, "");
+  n = n.replace(/\s*[\(（｜|].*$/, "").trim();
+  return n.length > 12 ? n.slice(0, 11) + "…" : n;
+};
+const haptic = (ms = 12) => {
+  try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {}
+};
+const mapsDir = (lat, lon, via) =>
+  "https://www.google.com/maps/dir/?api=1&destination=" + lat + "," + lon +
+  (via ? "&waypoints=" + via.lat + "," + via.lon : "") + "&travelmode=driving";
+const mapsSearchNear = (q, lat, lon) =>
+  "https://www.google.com/maps/search/" + encodeURIComponent(q) + "/@" + lat + "," + lon + ",14z";
+
+// ---- 環狀路線幾何（逆時針圓角矩形，起點在右下＝神戶） ----
+const RING = { W: 380, H: 470, x0: 46, x1: 334, y0: 50, y1: 424, r: 42 };
+const ringGeom = (() => {
+  const { x0, x1, y0, y1, r } = RING;
+  const V = y1 - y0 - 2 * r, Hh = x1 - x0 - 2 * r, A = (Math.PI * r) / 2;
+  const segs = [
+    { t: "L", len: V, p: [x1, y1 - r], d: [0, -1] },
+    { t: "A", len: A, c: [x1 - r, y0 + r], a0: 0, a1: -Math.PI / 2 },
+    { t: "L", len: Hh, p: [x1 - r, y0], d: [-1, 0] },
+    { t: "A", len: A, c: [x0 + r, y0 + r], a0: -Math.PI / 2, a1: -Math.PI },
+    { t: "L", len: V, p: [x0, y0 + r], d: [0, 1] },
+    { t: "A", len: A, c: [x0 + r, y1 - r], a0: Math.PI, a1: Math.PI / 2 },
+    { t: "L", len: Hh, p: [x0 + r, y1], d: [1, 0] },
+    { t: "A", len: A, c: [x1 - r, y1 - r], a0: Math.PI / 2, a1: 0 },
+  ];
+  const P = segs.reduce((s, g) => s + g.len, 0);
+  const at = (s) => {
+    s = ((s % P) + P) % P;
+    for (const g of segs) {
+      if (s <= g.len) {
+        if (g.t === "L") {
+          const x = g.p[0] + g.d[0] * s, y = g.p[1] + g.d[1] * s;
+          return { x, y, tx: g.d[0], ty: g.d[1], nx: g.d[1], ny: -g.d[0] };
+        }
+        const th = g.a0 + (g.a1 - g.a0) * (s / g.len);
+        const x = g.c[0] + r * Math.cos(th), y = g.c[1] + r * Math.sin(th);
+        const tx = Math.sin(th), ty = -Math.cos(th); // 逆時針切線
+        return { x, y, tx, ty, nx: ty, ny: -tx };
+      }
+      s -= g.len;
+    }
+    return at(0);
+  };
+  const d =
+    `M ${x1} ${y1 - r} L ${x1} ${y0 + r} A ${r} ${r} 0 0 0 ${x1 - r} ${y0} L ${x0 + r} ${y0} ` +
+    `A ${r} ${r} 0 0 0 ${x0} ${y0 + r} L ${x0} ${y1 - r} A ${r} ${r} 0 0 0 ${x0 + r} ${y1} ` +
+    `L ${x1 - r} ${y1} A ${r} ${r} 0 0 0 ${x1} ${y1 - r}`;
+  return { P, at, d };
+})();
+
+// ---- 現在時間（可模擬）與旅程狀態 ----
+const useMetroClock = (sim) => {
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 30000);
+    const vis = () => document.visibilityState === "visible" && setTick(Date.now());
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", vis); };
+  }, []);
+  return useMemo(() => {
+    const [Y, M, D] = METRO.tripStart;
+    if (sim) {
+      const d = new Date(Y, M, D + sim.dayIdx, 0, 0);
+      d.setMinutes(sim.min);
+      return d;
+    }
+    return new Date(tick);
+  }, [tick, sim]);
+};
+
+// 時刻跨午夜時不歸零（避免 00:09 被當成清晨）
+const metroTimeline = (spots) => {
+  let prev = -1, add = 0;
+  return spots.map((s) => {
+    let a = timeToMinutes(s.time) + add;
+    if (a < prev) { add += 1440; a += 1440; }
+    prev = a;
+    let dep = s.actualDepTime ? timeToMinutes(s.actualDepTime) + add : a + parseStayDuration(s.stay);
+    if (dep < a) dep += 1440;
+    return { a, dep };
+  });
+};
+const computeMetroState = (tripData, now, gps, shoppingList) => {
+  const [Y, M, D] = METRO.tripStart;
+  const start = new Date(Y, M, D);
+  const nDays = tripData.length;
+  const dayIdxRaw = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - start) / 86400000);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const flat = [];
+  tripData.forEach((d, di) => d.spots.forEach((s, si) => flat.push({ di, si, s })));
+  const globalIndex = (di, si) => flat.findIndex((f) => f.di === di && f.si === si);
+
+  if (dayIdxRaw < 0) {
+    const days = Math.ceil((start - now) / 86400000);
+    return { phase: "pre", days, dayIdx: 0, spotIdx: 0, source: "time", moving: false, flat, globalIndex, nowMin };
+  }
+  const lastDay = nDays - 1;
+  if (dayIdxRaw > lastDay || (dayIdxRaw === lastDay && nowMin >= timeToMinutes(METRO.returnFlight))) {
+    return { phase: "done", dayIdx: lastDay, spotIdx: tripData[lastDay].spots.length - 1, source: "time", moving: false, flat, globalIndex, nowMin };
+  }
+  const di = dayIdxRaw;
+  const spots = tripData[di].spots;
+  // 1) 手動：最後一個「已出發」的下一站
+  let manual = -1;
+  spots.forEach((s, i) => { if (s.isDeparted) manual = i; });
+  // 2) GPS：300 m 內
+  let gpsIdx = -1;
+  if (gps && gps.acc < 1000) {
+    let best = 0.3;
+    spots.forEach((s, i) => {
+      const km = parseFloat(getDistanceFromLatLonInKm(gps.lat, gps.lon, s.lat, s.lon));
+      if (km <= best) { best = km; gpsIdx = i; }
+    });
+  }
+  // 3) 時刻推估
+  let timeIdx = 0, moving = false, beforeStart = false;
+  const tl = metroTimeline(spots);
+  if (nowMin < tl[0].a) beforeStart = true;
+  else {
+    for (let i = 0; i < spots.length; i++) {
+      const a = tl[i].a;
+      const dep = tl[i].dep;
+      const nextA = i < spots.length - 1 ? tl[i + 1].a : Infinity;
+      if (nowMin >= a) timeIdx = i;
+      if (nowMin >= dep && nowMin < nextA && i < spots.length - 1) moving = true;
+      else if (nowMin >= a && nowMin < dep) moving = false;
+    }
+  }
+  let spotIdx, source;
+  if (manual >= 0 && manual < spots.length - 1) {
+    spotIdx = manual + 1; source = "manual"; moving = false;
+    if (gpsIdx > spotIdx) { spotIdx = gpsIdx; source = "gps"; }
+  } else if (manual === spots.length - 1) {
+    spotIdx = manual; source = "manual"; moving = false;
+  } else if (gpsIdx >= 0) {
+    spotIdx = gpsIdx; source = "gps"; moving = false;
+  } else {
+    spotIdx = timeIdx; source = beforeStart ? "hotel" : "time";
+  }
+  return { phase: "trip", dayIdx: di, spotIdx, source, moving, beforeStart, flat, globalIndex, nowMin };
+};
+
+// 午餐補給：當天第一段落在 12:00–16:00 的移動
+const findLunchLeg = (spots) => {
+  const tl = metroTimeline(spots);
+  for (let i = 0; i < spots.length - 1; i++) {
+    const dep = tl[i].dep;
+    const arr = tl[i + 1].a;
+    if (arr >= 12 * 60 && dep <= 16 * 60 && !MINOR_RE.test(spots[i + 1].name)) return i;
+  }
+  return -1;
+};
+const nearestBackup = (a, b) => {
+  const list = window.BACKUP_RESTAURANTS || [];
+  const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
+  let best = null;
+  list.forEach((r) => {
+    const km = parseFloat(getDistanceFromLatLonInKm(mid.lat, mid.lon, r.lat, r.lon));
+    if (km < 25 && (!best || km < best.km)) best = { ...r, km };
+  });
+  return { best, mid };
+};
+const hotelIndex = (spots) => {
+  let h = -1;
+  spots.forEach((s, i) => { if (isHotel(s.name) || /萬翠樓|旅館|ホテル/.test(s.name)) h = i; });
+  return h;
+};
+const dinnerStops = (spots, from) => {
+  const h = hotelIndex(spots);
+  if (h < 0) return { h, list: [] };
+  const list = [];
+  for (let i = Math.max(0, from); i < h; i++) if (SUPERMARKET_RE.test(spots[i].name)) list.push(i);
+  return { h, list };
+};
+
+// ---- 小元件 ----
+const MetroBadge = ({ i, size = 30, ring }) => (
+  <span
+    style={{
+      width: size, height: size, borderRadius: size / 2, background: METRO.colors[i], color: METRO.onColor[i],
+      fontFamily: MONO, fontSize: size * 0.38, fontWeight: 700, display: "inline-flex", alignItems: "center",
+      justifyContent: "center", flexShrink: 0, boxShadow: ring ? `0 0 0 3px ${METRO.tints[i]}` : "none",
+    }}
+  >
+    {String(i + 1).padStart(2, "0")}
+  </span>
+);
+const Chevron = ({ color = "currentColor", size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+    <path d="M4 2 L9 6 L4 10" fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const SectionCard = ({ color, title, right, children }) => (
+  <div style={{ background: "#fff", border: `1px solid ${METRO.line}`, borderRadius: 18, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 8, height: 22, borderRadius: 4, background: color }} />
+      <div style={{ fontSize: 15, fontWeight: 900 }}>{title}</div>
+      {right && <div style={{ marginLeft: "auto", fontSize: 11, color: METRO.sub }}>{right}</div>}
+    </div>
+    {children}
+  </div>
+);
+const PillBtn = ({ href, onClick, dark, children, style }) => {
+  const s = {
+    flex: 1, minHeight: 48, borderRadius: 12, fontSize: 13, fontWeight: 900, display: "flex", alignItems: "center",
+    justifyContent: "center", gap: 6, padding: "0 10px", textAlign: "center", textDecoration: "none",
+    background: dark ? METRO.ink : "#fff", color: dark ? "#fff" : METRO.ink, border: `2px solid ${METRO.ink}`, ...style,
+  };
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" style={s} onClick={() => haptic()}>{children}</a>
+  ) : (
+    <button onClick={() => { haptic(); onClick && onClick(); }} style={{ ...s, fontFamily: "inherit" }}>{children}</button>
+  );
+};
+
+// ============================================================================
+// 主元件
+// ============================================================================
+const MetroTab = ({
+  tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes,
+}) => {
+  const [sim, setSim] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("metro_sim") || "null"); } catch (e) { return null; }
+  });
+  const [simOpen, setSimOpen] = useState(false);
+  const [gps, setGps] = useState(null);
+  const [gpsOn, setGpsOn] = useState(() => localStorage.getItem("metro_gps") === "1");
+  const now = useMetroClock(sim);
+  const st = useMemo(() => computeMetroState(tripData, now, sim ? null : gps, shoppingList), [tripData, now, gps, sim, shoppingList]);
+
+  useEffect(() => {
+    try { sim ? localStorage.setItem("metro_sim", JSON.stringify(sim)) : localStorage.removeItem("metro_sim"); } catch (e) {}
+  }, [sim]);
+
+  // GPS：只在 App 可見時追蹤（Pixel 9a 雙頻 GNSS，開高精度；背景自動停以省電）
+  useEffect(() => {
+    if (!gpsOn || !navigator.geolocation) return;
+    let id = null;
+    const startW = () => {
+      if (id != null) return;
+      id = navigator.geolocation.watchPosition(
+        (p) => setGps({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 20000, timeout: 30000 }
+      );
+    };
+    const stopW = () => { if (id != null) { navigator.geolocation.clearWatch(id); id = null; } };
+    const vis = () => (document.visibilityState === "visible" ? startW() : stopW());
+    startW();
+    document.addEventListener("visibilitychange", vis);
+    return () => { stopW(); document.removeEventListener("visibilitychange", vis); };
+  }, [gpsOn]);
+
+  const enableGps = () => {
+    haptic();
+    if (!navigator.geolocation) return alert("此瀏覽器不支援定位");
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setGps({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() });
+        setGpsOn(true);
+        localStorage.setItem("metro_gps", "1");
+      },
+      (e) => alert("無法取得定位：" + (e.code === 1 ? "請在 Chrome 網站設定允許「位置」" : e.message)),
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
+  // Android 狀態列顏色跟著頁面走
+  const dayIdxView = view.level === "ring" ? null : view.day;
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const prev = meta.getAttribute("content");
+    meta.setAttribute("content", dayIdxView == null ? METRO.bg : METRO.colors[dayIdxView]);
+    return () => meta.setAttribute("content", prev);
+  }, [dayIdxView]);
+
+  const common = { tripData, st, now, go, back, sim };
+  return (
+    <div style={{ background: METRO.bg, color: METRO.ink, minHeight: "100%", fontFamily: "'Noto Sans TC', system-ui, sans-serif" }}>
+      {sim && (
+        <div style={{ background: "#FFE08A", color: "#5A4300", fontSize: 12, fontWeight: 900, padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ flex: 1 }}>試玩模式：{`1/${25 + sim.dayIdx} ${minutesToTimeStr(sim.min)}`}（不是真實時間）</span>
+          <button onClick={() => setSimOpen(true)} style={{ minHeight: 32, padding: "0 10px", borderRadius: 16, border: "2px solid #5A4300", background: "transparent", fontWeight: 900, color: "#5A4300", fontFamily: "inherit" }}>調整</button>
+          <button onClick={() => { haptic(); setSim(null); }} style={{ minHeight: 32, padding: "0 10px", borderRadius: 16, border: 0, background: "#5A4300", color: "#fff", fontWeight: 900, fontFamily: "inherit" }}>結束</button>
+        </div>
+      )}
+      {view.level === "ring" && (
+        <RingHome {...common} gpsOn={gpsOn} gps={gps} enableGps={enableGps} openSettings={openSettings}
+          openSim={() => setSimOpen(true)} shoppingList={shoppingList} />
+      )}
+      {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} handleDepartureToggle={handleDepartureToggle} winterRoutes={winterRoutes} />}
+      {view.level === "station" && (
+        <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
+          handleDepartureToggle={handleDepartureToggle} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
+          scanSpotNearby={scanSpotNearby} winterRoutes={winterRoutes} />
+      )}
+      {simOpen && <SimSheet sim={sim} setSim={setSim} close={() => setSimOpen(false)} tripData={tripData} />}
+    </div>
+  );
+};
+
+// ---- 試玩模式（出發前就能看旅途中畫面） ----
+const SimSheet = ({ sim, setSim, close, tripData }) => {
+  const [d, setD] = useState(sim ? sim.dayIdx : 2);
+  const [m, setM] = useState(sim ? sim.min : 12 * 60 + 20);
+  return (
+    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 80, display: "flex", alignItems: "flex-end" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: "#fff", borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: METRO.past, alignSelf: "center" }} />
+        <div style={{ fontSize: 17, fontWeight: 900 }}>試玩：假裝現在是…</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
+          {tripData.map((day, i) => (
+            <button key={i} onClick={() => { haptic(); setD(i); }}
+              style={{ minHeight: 48, borderRadius: 12, border: d === i ? `3px solid ${METRO.colors[i]}` : `2px solid ${METRO.line}`, background: d === i ? METRO.tints[i] : "#fff", fontFamily: "inherit", fontWeight: 900, fontSize: 13, color: METRO.ink }}>
+              1/{25 + i}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, width: 92 }}>{minutesToTimeStr(m)}</div>
+          <input type="range" min={6 * 60} max={22 * 60} step={10} value={m} onChange={(e) => setM(+e.target.value)}
+            style={{ flex: 1, height: 40, accentColor: METRO.colors[d] }} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <PillBtn onClick={() => { setSim(null); close(); }}>用真實時間</PillBtn>
+          <PillBtn dark onClick={() => { setSim({ dayIdx: d, min: m }); close(); }}>開始試玩</PillBtn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---- ① 首頁：環狀路線圖 ----
+const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim }) => {
+  const { flat } = st;
+  const N = flat.length;
+  const P = ringGeom.P;
+  const step = P / N;
+  const sAt = (g) => step * (g + 0.5);
+  const curG = st.globalIndex(st.dayIdx, st.spotIdx);
+  const dayRanges = tripData.map((d, di) => {
+    const a = st.globalIndex(di, 0), b = st.globalIndex(di, d.spots.length - 1);
+    return { s0: step * a, s1: step * (b + 1) };
+  });
+  const today = tripData[st.dayIdx];
+  const spots = today.spots;
+  const cur = spots[st.spotIdx];
+  const next = spots[st.spotIdx + 1];
+  const curPt = ringGeom.at(sAt(curG) + (st.moving ? step / 2 : 0));
+  const pct = (v, tot) => (v / tot) * 100 + "%";
+  const lunchLeg = findLunchLeg(spots);
+  const dinner = dinnerStops(spots, st.spotIdx);
+  const shopCount = shoppingList.filter((x) => !x.bought).length;
+  const matchHere = shoppingList.filter((x) => !x.bought && x.keywords?.some((k) => (cur?.name || "").toLowerCase().includes(k.toLowerCase())));
+  const isPre = st.phase === "pre", isDone = st.phase === "done";
+  const color = METRO.colors[st.dayIdx];
+  const dateLabel = `${now.getMonth() + 1}/${now.getDate()} ${hhmm(now)}`;
+  const doneCount = isPre ? 0 : st.spotIdx;
+
+  // 標籤：住宿（轉乘站）＋起點
+  const labels = [];
+  tripData.forEach((d, di) => {
+    const h = hotelIndex(d.spots);
+    if (h >= 0) {
+      const info = (window.HOTEL_INFO || [])[di];
+      labels.push({ g: st.globalIndex(di, h), text: info ? info.location : metroShort(d.spots[h].name), hotel: true });
+    }
+  });
+  labels.push({ g: 0, text: "神戶機場", start: true });
+
+  const segColor = (di) => {
+    if (isDone) return METRO.colors[di];
+    if (isPre) return METRO.colors[di];
+    if (di < st.dayIdx) return METRO.past;
+    return METRO.colors[di];
+  };
+
+  const ringLabelEl = (lb, i) => {
+    const p = ringGeom.at(sAt(lb.g));
+    const ox = p.x + p.nx * 14, oy = p.y + p.ny * 14;
+    const anchor = Math.abs(p.nx) > 0.5 ? (p.nx < 0 ? "end" : "start") : "middle";
+    const dy = Math.abs(p.ny) > 0.5 ? (p.ny > 0 ? 12 : -4) : 4;
+    return (
+      <text key={"lb" + i} x={ox} y={oy + dy} textAnchor={anchor} fontSize="11" fontWeight="700" fill={METRO.ink}
+        style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 3, strokeLinejoin: "round" }}>
+        {lb.text}
+      </text>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100dvh - 88px)", paddingBottom: 8 }}>
+      {/* 頂部列 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 16px 8px" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 900 }}>{window.APP_TITLE || "旅程"}</div>
+          <div style={{ fontSize: 12, color: METRO.sub }}>
+            {isPre ? `今天 ${now.getMonth() + 1}/${now.getDate()}・還有 ${st.days} 天出發`
+              : isDone ? "旅程完成・全線 6 條到站"
+              : `${dateLabel}・Day ${st.dayIdx + 1} / ${tripData.length}・全程第 ${curG + 1} / ${N} 站`}
+          </div>
+        </div>
+        <button aria-label="重新定位" onClick={enableGps}
+          style={{ width: 48, height: 48, borderRadius: 24, border: `2px solid ${gpsOn ? "#1767B3" : METRO.ink}`, background: gpsOn ? "#EAF2FB" : "#fff", color: gpsOn ? "#1767B3" : METRO.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" fill="currentColor" /><path d="M12 1v3M12 20v3M1 12h3M20 12h3" /></svg>
+        </button>
+        <button aria-label="設定" onClick={openSettings}
+          style={{ width: 48, height: 48, borderRadius: 24, border: `2px solid ${METRO.line}`, background: "#fff", color: METRO.sub, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+        </button>
+      </div>
+
+      {/* 路線圖 */}
+      <div style={{ margin: "0 16px", background: "#fff", borderRadius: 24, border: `1px solid ${METRO.line}`, padding: "10px 0 4px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
+          <div style={{ fontSize: 14, fontWeight: 900 }}>旅程路線圖</div>
+          <div style={{ fontSize: 11, color: METRO.sub }}>逆時針一圈・點路線看當日站點</div>
+        </div>
+        <div style={{ position: "relative", width: "100%", aspectRatio: `${RING.W} / ${RING.H}`, maxHeight: "calc(100dvh - 330px)", minHeight: 360, margin: "0 auto" }}>
+          <svg viewBox={`0 0 ${RING.W} ${RING.H}`} preserveAspectRatio="xMidYMid meet" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+            {/* 各日路線 */}
+            {dayRanges.map((r, di) => (
+              <path key={"seg" + di} d={ringGeom.d} fill="none" stroke={segColor(di)} strokeWidth={di === st.dayIdx && !isPre && !isDone ? 10 : 8}
+                strokeDasharray={`${r.s1 - r.s0 - 1.5} ${P}`} strokeDashoffset={-r.s0} />
+            ))}
+            {/* 今天已走過的部分 */}
+            {st.phase === "trip" && (
+              <path d={ringGeom.d} fill="none" stroke={METRO.tints[st.dayIdx]} strokeWidth={10}
+                strokeDasharray={`${Math.max(0, sAt(curG) - dayRanges[st.dayIdx].s0)} ${P}`} strokeDashoffset={-dayRanges[st.dayIdx].s0} />
+            )}
+            {/* 方向箭頭 */}
+            {dayRanges.map((r, di) => {
+              const p = ringGeom.at((r.s0 + r.s1) / 2 + step * 0.5);
+              const ang = (Math.atan2(p.ty, p.tx) * 180) / Math.PI;
+              return (
+                <path key={"ar" + di} d="M-3 -4 L2 0 L-3 4" transform={`translate(${p.x} ${p.y}) rotate(${ang})`}
+                  fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              );
+            })}
+            {/* 站點 */}
+            {flat.map((f, g) => {
+              if (g === curG) return null;
+              const p = ringGeom.at(sAt(g));
+              const minor = MINOR_RE.test(f.s.name);
+              const hotel = isHotel(f.s.name) || /萬翠樓/.test(f.s.name);
+              const passed = !isPre && (isDone || g < curG);
+              if (hotel)
+                return <rect key={g} x={p.x - 8} y={p.y - 8} width="16" height="16" rx="8" fill="#fff" stroke={passed ? "#8C8578" : METRO.ink} strokeWidth="3" />;
+              if (g === 0)
+                return (
+                  <g key={g} transform={`translate(${p.x} ${p.y})`}>
+                    <circle r="11" fill={METRO.ink} stroke="#fff" strokeWidth="3" />
+                    <path d="M-6 3 L6 -1 L-6 -5 L-3.5 -1 Z" fill="#fff" transform="translate(0 1)" />
+                  </g>
+                );
+              return minor ? (
+                <circle key={g} cx={p.x} cy={p.y} r="1.8" fill="#fff" />
+              ) : (
+                <circle key={g} cx={p.x} cy={p.y} r={passed ? 3.5 : 4.5} fill={passed ? "#fff" : "#fff"} stroke={passed ? "rgba(0,0,0,.18)" : segColor(f.di)} strokeWidth={passed ? 0 : 2.5} />
+              );
+            })}
+            {labels.map(ringLabelEl)}
+            {/* 我在這 */}
+            <circle cx={curPt.x} cy={curPt.y} r="18" fill={METRO.here} opacity=".3" className="metro-pulse" style={{ transformOrigin: `${curPt.x}px ${curPt.y}px` }} />
+            <circle cx={curPt.x} cy={curPt.y} r="9" fill="#fff" stroke={METRO.here} strokeWidth="5"
+              strokeDasharray={st.source === "time" ? "4 3" : "none"} />
+          </svg>
+
+          {/* 路線編號：點了進該日直線圖 */}
+          {dayRanges.map((r, di) => {
+            const p = ringGeom.at((r.s0 + r.s1) / 2);
+            const bx = p.x - p.nx * 26, by = p.y - p.ny * 26;
+            return (
+              <button key={"b" + di} aria-label={`${tripData[di].title} 站點圖`} onClick={() => { haptic(); go({ level: "day", day: di }); }}
+                style={{ position: "absolute", left: pct(bx, RING.W), top: pct(by, RING.H), transform: "translate(-50%,-50%)", width: 48, height: 48, border: 0, background: "transparent", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ opacity: !isPre && !isDone && di < st.dayIdx ? 0.55 : 1, display: "flex" }}>
+                  <MetroBadge i={di} size={30} ring={di === st.dayIdx && st.phase === "trip"} />
+                </span>
+              </button>
+            );
+          })}
+
+          {/* 我在這 泡泡 → 站點提醒 */}
+          {(() => {
+            const bx = curPt.x - curPt.nx * 0 + curPt.nx * 30, by = curPt.y + curPt.ny * 30;
+            return (
+              <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }}
+                style={{ position: "absolute", left: pct(bx, RING.W), top: pct(by, RING.H), transform: "translate(-50%,-50%)", minHeight: 36, maxWidth: 170, padding: "0 12px", borderRadius: 18, border: 0, background: METRO.here, color: "#fff", fontSize: 12, fontWeight: 900, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, boxShadow: "0 2px 8px rgba(0,0,0,.25)", whiteSpace: "nowrap", zIndex: 2 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {isPre ? "起點・" : isDone ? "終點・" : st.source === "time" ? "推估・" : st.moving ? "移動中・" : "我在這・"}{metroShort(cur?.name)}
+                </span>
+                <Chevron color="#fff" size={10} />
+              </button>
+            );
+          })()}
+
+          {/* 環內：今天 */}
+          <button onClick={() => { haptic(); go({ level: "day", day: st.dayIdx }); }}
+            style={{ position: "absolute", left: "29%", top: "30%", width: "42%", height: "42%", borderRadius: 18, background: METRO.tints[st.dayIdx] + "55", border: `2px solid ${METRO.tints[st.dayIdx]}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, textAlign: "left", fontFamily: "inherit", color: METRO.ink }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+              <span style={{ height: 22, padding: "0 7px", borderRadius: 11, background: color, color: METRO.onColor[st.dayIdx], fontFamily: MONO, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center" }}>
+                DAY {st.dayIdx + 1}/{tripData.length}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#3D3830" }}>{today.date.replace(/\s*\(.*\)/, "")}</span>
+            </span>
+            {isPre ? (
+              <>
+                <span style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, lineHeight: "38px" }}>{st.days}</span>
+                  <span style={{ fontSize: 13, fontWeight: 900 }}>天後發車</span>
+                </span>
+                <span style={{ fontSize: 11, color: "#3D3830" }}>首日：{today.title}</span>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 19, fontWeight: 900, lineHeight: "24px" }}>{today.title}</span>
+                <span style={{ height: 6, borderRadius: 3, background: "#ffffffaa", overflow: "hidden", display: "block" }}>
+                  <span style={{ width: `${Math.round(((isDone ? spots.length : doneCount + 1) / spots.length) * 100)}%`, height: 6, borderRadius: 3, background: color, display: "block" }} />
+                </span>
+                <span style={{ fontSize: 11, color: "#3D3830" }}>第 {st.spotIdx + 1} / {spots.length} 站</span>
+              </>
+            )}
+            <span style={{ marginTop: "auto", minHeight: 36, borderRadius: 10, background: color, color: METRO.onColor[st.dayIdx], fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              看{isPre ? "第一天" : "今天"} {spots.length} 站 <Chevron size={10} />
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* 現在 → 下一站 */}
+      <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }}
+        style={{ margin: "8px 16px 0", minHeight: 68, background: "#1C1B19", borderRadius: 18, padding: "8px 14px", color: "#fff", display: "flex", alignItems: "center", gap: 10, border: 0, fontFamily: "inherit", textAlign: "left" }}>
+        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 11, color: "#FF8A80", fontWeight: 900 }}>
+            {isPre ? "起點" : st.source === "hotel" ? "出發前・在飯店" : st.moving ? "移動中・剛離開" : st.source === "time" ? "推估位置" : st.source === "gps" ? "GPS 定位・我在這" : "我在這"}
+          </span>
+          <span style={{ fontSize: 15, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{metroShort(cur?.name)}</span>
+        </span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFC24D" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 11, color: "#C9C3B8" }}>{next ? `下一站・${next.time}` : "今日終點"}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{next ? metroShort(next.name) : "休息"}</span>
+        </span>
+      </button>
+
+      {/* 提醒膠囊 */}
+      <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
+        {isPre ? (
+          <>
+            <button onClick={() => { haptic(); openSim(); }} style={chipStyle("#FFF6E3", "#E89B00", "#5A4300")}>試玩旅途中畫面</button>
+            <button onClick={() => { haptic(); go({ level: "station", day: 0, spot: 0 }); }} style={chipStyle("#EAF2FB", "#1767B3", "#0F3F70")}>購物清單 {shopCount} 項</button>
+          </>
+        ) : (
+          <>
+            {lunchLeg >= st.spotIdx - 1 && lunchLeg >= 0 && st.nowMin < 16 * 60 && (
+              <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: lunchLeg }); }} style={chipStyle("#FFF6E3", "#E89B00", "#5A4300")}>午餐順路</button>
+            )}
+            <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }} style={chipStyle("#FFF1E8", "#D9822B", "#6B3A00")}>
+              購物 {matchHere.length ? `這站 ${matchHere.length} 項` : `清單 ${shopCount} 項`}
+            </button>
+            {dinner.h >= 0 && st.spotIdx <= dinner.h && (
+              <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: dinner.list.length ? dinner.list[dinner.list.length - 1] : Math.max(0, dinner.h - 1) }); }} style={chipStyle("#F4EFFA", "#7B52AE", "#5B3A8A")}>
+                晚餐採買
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+const chipStyle = (bg, bd, fg) => ({
+  flex: 1, minHeight: 48, borderRadius: 24, background: bg, border: `2px solid ${bd}`, color: fg, fontSize: 12,
+  fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", padding: "0 6px",
+});
+
+// ---- ② 當日直線路線 ----
+const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, handleDepartureToggle, winterRoutes }) => {
+  const day = tripData[dayIdx];
+  const spots = day.spots;
+  const color = METRO.colors[dayIdx], tint = METRO.tints[dayIdx], on = METRO.onColor[dayIdx];
+  const isToday = st.phase === "trip" && st.dayIdx === dayIdx;
+  const isPastDay = st.phase === "done" || (st.phase === "trip" && dayIdx < st.dayIdx);
+  const cur = isToday ? st.spotIdx : -1;
+  const lunchLeg = findLunchLeg(spots);
+  const dinner = dinnerStops(spots, 0);
+  const wr = (winterRoutes || []).find((w) => w.dayId === day.dayId);
+  const risk = wr ? { high: ["高風險", "#FFD2CC", "#8A1C12"], medium: ["中風險", "#FFE08A", "#5A4300"], low: ["低風險", "#CDEBD8", "#0B5E36"] }[wr.risk] : null;
+  const prevHotel = dayIdx > 0 ? (window.HOTEL_INFO || [])[dayIdx - 1] : null;
+  const curRef = useRef(null);
+  useEffect(() => {
+    if (curRef.current) curRef.current.scrollIntoView({ block: "center", behavior: "instant" in document.documentElement.style ? "instant" : "auto" });
+    else window.scrollTo(0, 0);
+  }, [dayIdx]);
+
+  return (
+    <div style={{ paddingBottom: 24 }}>
+      <div style={{ background: color, color: on, padding: "calc(12px + env(safe-area-inset-top)) 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button aria-label="返回路線圖" onClick={() => { haptic(); back(); }}
+            style={{ width: 48, height: 48, borderRadius: 24, background: "rgba(255,255,255,.2)", color: on, border: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+          </button>
+          <span style={{ width: 36, height: 36, borderRadius: 18, background: "#fff", color: METRO.colors[dayIdx], fontFamily: MONO, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {String(dayIdx + 1).padStart(2, "0")}
+          </span>
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>{day.title}</div>
+            <div style={{ fontSize: 12, opacity: 0.9 }}>{day.date}・Day {dayIdx + 1} / {tripData.length}{isToday ? "・今天" : ""}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {isToday && <span style={hdrChip("#fff", color)}>已完成 {st.spotIdx} 站</span>}
+          <span style={hdrChip("rgba(255,255,255,.2)", on)}>{spots.length} 站・{spots[0].time} 出發</span>
+          {risk && <span style={hdrChip(risk[1], risk[2])}>雪況 {risk[0]}</span>}
+        </div>
+        {/* 左右滑換日 */}
+        <div style={{ display: "flex", gap: 8 }}>
+          {dayIdx > 0 && (
+            <button onClick={() => { haptic(); go({ level: "day", day: dayIdx - 1 }, true); }} style={hdrNav(on)}>‹ 前一天 {String(dayIdx).padStart(2, "0")}</button>
+          )}
+          {dayIdx < tripData.length - 1 && (
+            <button onClick={() => { haptic(); go({ level: "day", day: dayIdx + 1 }, true); }} style={{ ...hdrNav(on), marginLeft: "auto" }}>後一天 {String(dayIdx + 2).padStart(2, "0")} ›</button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: "14px 16px 0" }}>
+        {prevHotel && (
+          <StopRow time="" lineTop={null} lineBottom={METRO.past} dot={<span style={capsule("#8C8578")} />}>
+            <div style={{ fontSize: 14, color: "#6F695F" }}>{prevHotel.name}</div>
+            <div style={{ fontSize: 11, color: "#6F695F" }}>起點・由 {String(dayIdx).padStart(2, "0")} 轉乘</div>
+          </StopRow>
+        )}
+        {spots.map((s, i) => {
+          const done = isPastDay || (isToday && i < cur);
+          const here = i === cur;
+          const minor = MINOR_RE.test(s.name);
+          const hotel = isHotel(s.name) || /萬翠樓/.test(s.name);
+          const lineC = done ? tint : color;
+          const lineAfter = i < spots.length - 1 ? (isPastDay || (isToday && i < cur) ? tint : color) : null;
+          const isNext = isToday && i === cur + 1;
+          const isDinner = dinner.list.includes(i);
+          const items = [];
+          items.push(
+            <StopRow key={s.id} refEl={here ? curRef : null} time={s.time} timeColor={here ? METRO.here : isNext ? color : done ? "#6F695F" : "#3D3830"}
+              lineTop={i === 0 && !prevHotel ? null : lineC} lineBottom={lineAfter}
+              dot={here ? <span style={{ width: 26, height: 26, boxSizing: "border-box", borderRadius: 13, background: "#fff", border: `7px solid ${METRO.here}` }} />
+                : hotel ? <span style={capsule(METRO.ink)} />
+                : minor ? <span style={{ width: 8, height: 8, borderRadius: 4, background: done ? tint : "#fff", border: done ? 0 : `2px solid ${color}` }} />
+                : <span style={{ width: 18, height: 18, boxSizing: "border-box", borderRadius: 9, background: done ? tint : "#fff", border: done ? 0 : `4px solid ${color}` }} />}
+              onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}>
+              {here ? (
+                <div style={{ background: "#fff", border: `2px solid ${METRO.here}`, borderRadius: 16, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, flex: 1 }}>{s.name}</div>
+                    <span style={{ height: 22, padding: "0 8px", borderRadius: 11, background: METRO.here, color: "#fff", fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center", flexShrink: 0 }}>
+                      {st.source === "time" ? "推估" : "我在這"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#3D3830" }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : `預計 ${minutesToTimeStr(timeToMinutes(s.time) + parseStayDuration(s.stay))} 出發`}</div>
+                  {s.desc && <div style={{ fontSize: 12, color: "#0B5E36", fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>觀光：{s.desc}</div>}
+                  <div style={{ display: "flex", gap: 6, marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                    {i < spots.length - 1 && (
+                      <PillBtn dark onClick={() => handleDepartureToggle(s.id)} style={{ background: color, borderColor: color, color: on, flex: 2 }}>
+                        {s.actualDepTime ? "取消出發" : "出發往下一站"}
+                      </PillBtn>
+                    )}
+                    <PillBtn onClick={() => go({ level: "station", day: dayIdx, spot: i })} style={{ color: METRO.here, borderColor: METRO.here }}>看提醒 ›</PillBtn>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingTop: 2, paddingBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: minor ? 13 : 14, fontWeight: isNext || hotel ? 900 : 400, color: done ? "#6F695F" : METRO.ink }}>{s.name}</span>
+                    {isNext && <span style={{ height: 20, padding: "0 7px", borderRadius: 10, border: `2px solid ${color}`, color: dayIdx === 3 ? "#8A5A00" : color, fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center" }}>下一站</span>}
+                    {isDinner && <span style={{ height: 20, padding: "0 7px", borderRadius: 10, background: "#7B52AE", color: "#fff", fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center" }}>晚餐採買</span>}
+                    {done && <span style={{ fontSize: 11, color: "#6F695F" }}>✓</span>}
+                  </div>
+                  {s.nextStop && !hotel && <div style={{ fontSize: 11, color: "#6F695F" }}>停留 {s.stay}・往下站 {s.nextStop.driveTime.replace("m", " 分")}</div>}
+                  {hotel && dayIdx < tripData.length - 1 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                      <span style={{ fontSize: 11, color: "#3D3830" }}>明天轉乘</span>
+                      <span style={{ height: 24, padding: "0 8px", borderRadius: 12, background: METRO.colors[dayIdx + 1], color: METRO.onColor[dayIdx + 1], fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontFamily: MONO }}>{String(dayIdx + 2).padStart(2, "0")}</span>{tripData[dayIdx + 1].title}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </StopRow>
+          );
+          if (i === lunchLeg) {
+            items.push(
+              <StopRow key={s.id + "-lunch"} time="午餐" timeColor="#8A5A00" lineTop={lineAfter} lineBottom={lineAfter} dot={null}
+                onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}>
+                <div style={{ background: "#FFF6E3", border: "2px dashed #E89B00", borderRadius: 14, padding: "8px 12px", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: "#5A4300" }}>午餐順路（12–16 點移動）</div>
+                  <div style={{ fontSize: 12, color: "#5A4300" }}>內用丼飯／外帶飯糰，點這裡看順路店家</div>
+                </div>
+              </StopRow>
+            );
+          }
+          if (dinner.h >= 0 && !dinner.list.length && i === dinner.h - 1) {
+            items.push(
+              <StopRow key={s.id + "-dinner"} time="採買" timeColor="#5B3A8A" lineTop={lineAfter} lineBottom={lineAfter} dot={null}
+                onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}>
+                <div style={{ background: "#F4EFFA", border: "2px dashed #7B52AE", borderRadius: 14, padding: "8px 12px", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: "#5B3A8A" }}>進飯店前採買折扣便當</div>
+                  <div style={{ fontSize: 12, color: "#5B3A8A" }}>沿路找超市／便利商店</div>
+                </div>
+              </StopRow>
+            );
+          }
+          return items;
+        })}
+        <button onClick={() => { haptic(); openDetail(day.dayId); }}
+          style={{ marginTop: 12, width: "100%", minHeight: 48, borderRadius: 14, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 13, fontWeight: 700, color: METRO.ink }}>
+          開啟詳細卡片（改停留時間・票價・記帳）
+        </button>
+        <div style={{ marginTop: 10, fontSize: 11, color: METRO.sub, lineHeight: "18px" }}>
+          時間依「出發時間＋各站停留＋車程」推算。按「出發往下一站」或 GPS 進入站點 300 m 內，我的位置就前進一站。
+        </div>
+      </div>
+    </div>
+  );
+};
+const hdrChip = (bg, fg) => ({ height: 28, padding: "0 10px", borderRadius: 14, background: bg, color: fg, fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center" });
+const hdrNav = (on) => ({ minHeight: 40, padding: "0 12px", borderRadius: 20, border: 0, background: "rgba(255,255,255,.2)", color: on, fontFamily: "inherit", fontSize: 12, fontWeight: 900 });
+const capsule = (c) => ({ width: 26, height: 18, boxSizing: "border-box", borderRadius: 9, background: "#fff", border: `3px solid ${c}` });
+const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick, refEl }) => (
+  <div ref={refEl} onClick={onClick} style={{ display: "flex", gap: 10, minHeight: 52, cursor: onClick ? "pointer" : "default", WebkitTapHighlightColor: "transparent" }}>
+    <div style={{ width: 44, paddingTop: 4, fontFamily: MONO, fontSize: 12, fontWeight: 700, color: timeColor || "#3D3830", textAlign: "right", flexShrink: 0 }}>{time}</div>
+    <div style={{ width: 26, display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+      <div style={{ width: 6, height: 6, background: lineTop || "transparent" }} />
+      {dot}
+      <div style={{ width: 6, flexGrow: 1, background: lineBottom || "transparent" }} />
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+  </div>
+);
+
+// ---- ③ 站點提醒 ----
+const StationPage = ({
+  tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, handleDepartureToggle,
+  openExpenseModal, openChainFinder, scanSpotNearby, winterRoutes,
+}) => {
+  const day = tripData[dayIdx];
+  const spots = day.spots;
+  const s = spots[spotIdx];
+  const next = spots[spotIdx + 1];
+  const color = METRO.colors[dayIdx], on = METRO.onColor[dayIdx];
+  const isHere = st.phase === "trip" && st.dayIdx === dayIdx && st.spotIdx === spotIdx;
+  const lunchLeg = findLunchLeg(spots);
+  const showLunch = next && lunchLeg === spotIdx;
+  const dinner = dinnerStops(spots, spotIdx);
+  const hotelI = dinner.h;
+  const hotel = hotelI >= 0 ? spots[hotelI] : null;
+  const wr = (winterRoutes || []).find((w) => w.dayId === day.dayId);
+  const matches = shoppingList.filter((x) => x.keywords?.some((k) => s.name.toLowerCase().includes(k.toLowerCase()) || (s.desc || "").toLowerCase().includes(k.toLowerCase())));
+  const unbought = shoppingList.filter((x) => !x.bought);
+  const lunch = next ? nearestBackup(s, next) : null;
+  const depMin = s.actualDepTime ? timeToMinutes(s.actualDepTime) : timeToMinutes(s.time) + parseStayDuration(s.stay);
+  useEffect(() => { window.scrollTo(0, 0); }, [dayIdx, spotIdx]);
+
+  return (
+    <div style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+      <div style={{ background: color, color: on, padding: "calc(12px + env(safe-area-inset-top)) 16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, flexWrap: "wrap" }}>
+          <button onClick={() => { haptic(); go({ level: "ring" }, "root"); }} style={crumb(on)}>路線圖</button>
+          <span style={{ opacity: 0.7 }}>›</span>
+          <button onClick={() => { haptic(); go({ level: "day", day: dayIdx }, "replaceParent"); }} style={crumb(on)}>{String(dayIdx + 1).padStart(2, "0")} {day.title}</button>
+          <span style={{ opacity: 0.7 }}>›</span>
+          <span>本站</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isHere && <span style={{ height: 24, padding: "0 9px", borderRadius: 12, background: METRO.here, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center" }}>{st.source === "time" ? "推估在這" : "我在這"}</span>}
+          <span style={{ fontSize: 12, opacity: 0.85 }}>第 {spotIdx + 1} 站／共 {spots.length} 站・{day.date} {s.time} 到</span>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 900, lineHeight: "28px" }}>{s.name}</div>
+        <div style={{ fontSize: 13, opacity: 0.9 }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : `建議 ${minutesToTimeStr(depMin)} 出發`}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href={s.gmapLink} target="_blank" rel="noreferrer" style={hdrLink(on)}>地圖</a>
+          {s.mapCode && <span style={hdrLink(on)}>MapCode {s.mapCode}</span>}
+          {spotIdx > 0 && <button onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: spotIdx - 1 }, true); }} style={{ ...hdrLink(on), marginLeft: "auto" }}>‹ 上站</button>}
+          {next && <button onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: spotIdx + 1 }, true); }} style={{ ...hdrLink(on), marginLeft: spotIdx > 0 ? 0 : "auto" }}>下站 ›</button>}
+        </div>
+      </div>
+
+      <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <SectionCard color="#13804A" title="觀光提醒">
+          <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。可到「詳細卡片」加筆記。"}</div>
+        </SectionCard>
+
+        <SectionCard color="#E89B00" title="購物提醒" right={matches.length ? "這站可能買得到" : `清單還有 ${unbought.length} 項`}>
+          {(matches.length ? matches : unbought.slice(0, 4)).map((it) => (
+            <button key={it.id} onClick={() => { haptic(); toggleBought(it.id); }}
+              style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 48, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
+              <span style={{ width: 24, height: 24, boxSizing: "border-box", borderRadius: 6, border: `2px solid ${it.bought ? "#13804A" : "#C9C3B8"}`, background: it.bought ? "#13804A" : "#fff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{it.bought ? "✓" : ""}</span>
+              <span style={{ fontSize: 14, flex: 1, textDecoration: it.bought ? "line-through" : "none", color: it.bought ? "#8C8578" : METRO.ink }}>{it.icon} {it.name}</span>
+              <span style={{ fontSize: 11, color: METRO.sub, maxWidth: 130, textAlign: "right" }}>{it.note}</span>
+            </button>
+          ))}
+          {!matches.length && !unbought.length && <div style={{ fontSize: 13, color: METRO.sub }}>清單都買齊了</div>}
+          <div style={{ display: "flex", gap: 6 }}>
+            <PillBtn onClick={() => scanSpotNearby(s.lat, s.lon, s.name)}>AI 找附近哪裡買</PillBtn>
+          </div>
+        </SectionCard>
+
+        {next && (
+          <SectionCard color={METRO.ink} title="下一站">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 20, height: 20, boxSizing: "border-box", borderRadius: 10, border: `5px solid ${color}`, flexShrink: 0 }} />
+              <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 900 }}>{next.name}</div>
+                <div style={{ fontSize: 12, color: "#3D3830" }}>車程約 {s.nextStop?.driveTime.replace("m", " 分")}・{s.nextStop?.distance}・預計 {next.time} 到</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <PillBtn dark href={mapsDir(next.lat, next.lon)}>導航到下一站</PillBtn>
+            </div>
+            {showLunch && (
+              <div style={{ background: "#FFF6E3", border: "2px dashed #E89B00", borderRadius: 14, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: "#5A4300" }}>午餐順路（這段移動在 12:00–16:00）</div>
+                {lunch.best && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ height: 22, padding: "0 8px", borderRadius: 11, background: "#E89B00", color: METRO.ink, fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center", flexShrink: 0 }}>內用丼飯</span>
+                    <span style={{ fontSize: 13, flex: 1 }}>{lunch.best.name}</span>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  {lunch.best ? (
+                    <PillBtn dark href={mapsDir(next.lat, next.lon, lunch.best)}>經すき家再到下一站</PillBtn>
+                  ) : (
+                    <PillBtn dark href={mapsSearchNear("牛丼", lunch.mid.lat, lunch.mid.lon)}>找沿路丼飯</PillBtn>
+                  )}
+                  <PillBtn href={mapsSearchNear("コンビニ", lunch.mid.lat, lunch.mid.lon)}>外帶飯糰（超商）</PillBtn>
+                </div>
+                <PillBtn onClick={() => openChainFinder(s, next)} style={{ borderStyle: "dashed" }}>更多連鎖店（吉野家・松屋…）</PillBtn>
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {hotel && spotIdx < hotelI && (
+          <SectionCard color="#7B52AE" title="進飯店前採買" right={`今晚：${metroShort(hotel.name)}`}>
+            {dinner.list.map((i) => (
+              <button key={i} onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }, true); }}
+                style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 44, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
+                <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, color: "#7B52AE" }}>{spots[i].time}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>{metroShort(spots[i].name)}</span>
+                <span style={{ fontSize: 11, color: METRO.sub }}>熟食 18:30 後貼折扣</span>
+              </button>
+            ))}
+            {!dinner.list.length && <div style={{ fontSize: 13 }}>今天行程沒排超市，可在最後一段順路找。</div>}
+            <div style={{ display: "flex", gap: 6 }}>
+              <PillBtn href={mapsSearchNear("スーパー", hotel.lat, hotel.lon)}>飯店附近超市</PillBtn>
+              <PillBtn href={mapsSearchNear("コンビニ", hotel.lat, hotel.lon)}>飯店附近超商</PillBtn>
+            </div>
+          </SectionCard>
+        )}
+
+        {wr && (
+          <div style={{ background: "#EAF2FB", borderRadius: 18, padding: "12px 14px", display: "flex", gap: 10 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1767B3" strokeWidth="2.4" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1L19.1 4.9" /></svg>
+            <div style={{ fontSize: 12, color: "#0F3F70", lineHeight: "18px" }}>
+              <b>今天路況（{{ high: "高風險", medium: "中風險", low: "低風險" }[wr.risk]}）：</b>{wr.notes}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: `linear-gradient(rgba(247,244,238,0), ${METRO.bg} 30%)`, display: "flex", gap: 8 }}>
+        {next ? (
+          <PillBtn dark onClick={() => { handleDepartureToggle(s.id); if (!s.actualDepTime) go({ level: "day", day: dayIdx }, "replaceParent"); }}
+            style={{ flex: 3, minHeight: 56, borderRadius: 16, fontSize: 15, background: s.actualDepTime ? "#fff" : color, color: s.actualDepTime ? METRO.ink : on, borderColor: s.actualDepTime ? METRO.line : color }}>
+            {s.actualDepTime ? `取消出發紀錄（${s.actualDepTime}）` : "出發往下一站"}
+          </PillBtn>
+        ) : (
+          <PillBtn dark onClick={() => go({ level: "day", day: dayIdx }, "replaceParent")} style={{ flex: 3, minHeight: 56, borderRadius: 16 }}>回今日路線</PillBtn>
+        )}
+        <PillBtn onClick={() => openExpenseModal(s)} style={{ minHeight: 56, borderRadius: 16, borderColor: METRO.line }}>記帳</PillBtn>
+      </div>
+    </div>
+  );
+};
+const crumb = (on) => ({ minHeight: 32, padding: "0 10px", borderRadius: 16, border: 0, background: "rgba(255,255,255,.2)", color: on, fontFamily: "inherit", fontSize: 12, fontWeight: 700 });
+const hdrLink = (on) => ({ minHeight: 36, padding: "0 12px", borderRadius: 18, border: 0, background: "rgba(255,255,255,.2)", color: on, fontFamily: "inherit", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", textDecoration: "none" });
+
+
 function App() {
   const Icons = window.Icons;
 
   // --- States (UI Control) ---
-  const [activeTab, setActiveTab] = useState("itinerary");
+  const [activeTab, setActiveTabRaw] = useState("metro");
+  // --- 🚇 路線圖導覽堆疊（與瀏覽器歷史同步，Android 手勢返回可用） ---
+  const [metroStack, setMetroStack] = useState([{ level: "ring" }]);
+  const metroStackRef = useRef(metroStack);
+  metroStackRef.current = metroStack;
+  useEffect(() => {
+    try { history.replaceState({ metroDepth: 1 }, ""); } catch (e) {}
+    const onPop = (e) => {
+      const depth = (e.state && e.state.metroDepth) || 1;
+      setMetroStack((st) => st.slice(0, Math.max(1, Math.min(depth, st.length))));
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const metroGo = (v, mode) => {
+    const st = metroStackRef.current;
+    if (mode === "root") {
+      if (st.length > 1) history.go(-(st.length - 1));
+      return;
+    }
+    if (mode === "replaceParent") {
+      if (st.length >= 2) {
+        setMetroStack((x) => { const y = x.slice(); y[y.length - 2] = v; return y; });
+        history.back();
+      } else {
+        setMetroStack([st[0], v]);
+        history.pushState({ metroDepth: 2 }, "");
+      }
+      return;
+    }
+    if (mode === true) {
+      setMetroStack((x) => { const y = x.slice(); y[y.length - 1] = v; return y; });
+      return;
+    }
+    const nx = [...st, v];
+    setMetroStack(nx);
+    history.pushState({ metroDepth: nx.length }, "");
+  };
+  const metroBack = () => {
+    if (metroStackRef.current.length > 1) history.back();
+  };
+  const setActiveTab = (t) => {
+    const st = metroStackRef.current;
+    if (st.length > 1) history.go(-(st.length - 1));
+    setActiveTabRaw(t);
+    window.scrollTo(0, 0);
+  };
+  const metroView = metroStack[metroStack.length - 1];
   const [selectedDay, setSelectedDay] = useState("all");
   const [currentThemeIndex, setCurrentThemeIndex] = useState(() =>
     parseInt(localStorage.getItem("themeIndex") || "0", 10)
@@ -5943,8 +6907,8 @@ ${JSON.stringify(hotelWithDates)}
   };
 
   return (
-    <div className="min-h-screen pb-24 bg-[#F9F7F5]">
-      <nav className="sticky top-0 z-50 bg-[#F9F7F5]/90 backdrop-blur-md p-4 border-b border-gray-200 shadow-sm">
+    <div className={"min-h-screen bg-[#F9F7F5] " + (activeTab === "metro" ? (metroView.level === "station" ? "" : "pb-24 !bg-[#F7F4EE]") : "pb-24")}>
+      {activeTab !== "metro" && <nav className="sticky top-0 z-50 bg-[#F9F7F5]/90 backdrop-blur-md p-4 border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white rounded-full border-2 border-[#E4C2C1] overflow-hidden">
@@ -6003,8 +6967,25 @@ ${JSON.stringify(hotelWithDates)}
             </button>
           </div>
         </div>
-      </nav>
-      <main className="max-w-5xl mx-auto p-4 md:p-8">
+      </nav>}
+      {activeTab === "metro" && (
+        <MetroTab
+          tripData={tripData}
+          view={metroView}
+          go={metroGo}
+          back={metroBack}
+          shoppingList={shoppingList}
+          toggleBought={toggleBought}
+          handleDepartureToggle={handleDepartureToggle}
+          openExpenseModal={openExpenseModal}
+          openChainFinder={openChainFinder}
+          scanSpotNearby={scanSpotNearby}
+          openSettings={() => setIsKeyModalOpen(true)}
+          openDetail={(dayId) => { setSelectedDay(dayId); setActiveTab("itinerary"); }}
+          winterRoutes={window.WINTER_ROUTES}
+        />
+      )}
+      <main className={activeTab === "metro" ? "hidden" : "max-w-5xl mx-auto p-4 md:p-8"}>
         {activeTab === "itinerary" && (
           <ItineraryTab
             tripData={tripData}
@@ -6131,7 +7112,7 @@ ${JSON.stringify(hotelWithDates)}
       )}
 
       {/* 購物清單浮動按鈕 */}
-      <button
+      {activeTab !== "metro" && <button
         onClick={() => { if (!showShoppingPanel && SHOP_BASE) syncNow(); setShowShoppingPanel(!showShoppingPanel); }}
         className="fixed bottom-20 right-4 z-50 w-14 h-14 bg-amber-500 text-white rounded-full shadow-lg flex items-center justify-center text-2xl active:scale-90 transition-transform"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
@@ -6142,7 +7123,7 @@ ${JSON.stringify(hotelWithDates)}
             {shoppingList.filter(i => !i.bought).length}
           </span>
         )}
-      </button>
+      </button>}
 
       {/* 購物清單面板 */}
       {showShoppingPanel && (
@@ -6252,14 +7233,14 @@ ${JSON.stringify(hotelWithDates)}
         </div>
       )}
 
-      <div className="fixed bottom-0 w-full bg-white/95 backdrop-blur-md border-t-2 border-gray-200 pb-safe z-40 flex justify-around py-3 text-xs font-bold text-gray-500">
+      {!(activeTab === "metro" && metroView.level === "station") && <div className="fixed bottom-0 w-full bg-white/95 backdrop-blur-md border-t-2 border-gray-200 z-40 flex justify-around pt-2 text-xs font-bold text-gray-500" style={{ paddingBottom: "calc(8px + env(safe-area-inset-bottom))" }}>
         <button
-          onClick={() => setActiveTab("itinerary")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "itinerary" ? "text-indigo-600" : "hover:text-gray-900"
+          onClick={() => setActiveTab("metro")}
+          className={`flex flex-col items-center gap-1 p-2 min-w-[56px] ${
+            activeTab === "metro" || activeTab === "itinerary" ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
-          <Icons.List size={26} /> 行程
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><rect x="4" y="4" width="16" height="16" rx="5" /><circle cx="12" cy="4" r="1.6" fill="currentColor" /><circle cx="4" cy="12" r="1.6" fill="currentColor" /><circle cx="20" cy="14" r="2.4" fill="#E2342F" stroke="none" /></svg> 路線圖
         </button>
         <button
           onClick={() => setActiveTab("info")}
@@ -6301,7 +7282,7 @@ ${JSON.stringify(hotelWithDates)}
         >
           <Icons.Heart size={26} /> 願望
         </button>
-      </div>
+      </div>}
       <ApiKeyModal
         isOpen={isKeyModalOpen}
         onClose={() => setIsKeyModalOpen(false)}

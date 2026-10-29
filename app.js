@@ -4788,6 +4788,25 @@ const metroShort = (name) => {
 const haptic = (ms = 12) => {
   try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {}
 };
+// 📸 一鍵把比價指令複製到剪貼簿，再喚醒手機的 Gemini App（Pixel 9a 也可長按電源鍵叫出 Gemini）
+const GEMINI_PRICE_PROMPT_DEFAULT = `你是我的日本旅遊尋寶與比價助手。請分析我接下來上傳的商品或標價照片：
+1.【匯率換算】抓出日幣價格（分清稅拔／稅込），以 1 日圓 ≈ 0.215 台幣換算，並提示同店消費是否已滿 5,000 日圓可退稅。
+2.【行情比價】辨識商品型號／番號，比對台灣網拍或二手行情，直接告訴我「值得買」「普通」或「台灣買就好」。
+3.【防雷提醒】若是二手玩具、樂高、動漫周邊或電子產品，用一句話提醒常見缺件、盜版特徵或通病。
+請用極簡條列回答，讓我在店內 3 秒看完做決定。`;
+const launchGemini = async (prompt) => {
+  haptic(20);
+  let copied = false;
+  try { await navigator.clipboard.writeText(prompt); copied = true; } catch (e) {}
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    // 有裝 Gemini App 就開 App，沒有就退回網頁版
+    window.location.href = "intent://gemini.google.com/app#Intent;scheme=https;package=com.google.android.apps.bard;S.browser_fallback_url=https%3A%2F%2Fgemini.google.com%2Fapp;end";
+  } else {
+    window.open("https://gemini.google.com/app", "_blank");
+  }
+  return copied;
+};
 const mapsDir = (lat, lon, via) =>
   "https://www.google.com/maps/dir/?api=1&destination=" + lat + "," + lon +
   (via ? "&waypoints=" + via.lat + "," + via.lon : "") + "&travelmode=driving";
@@ -5033,7 +5052,7 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice,
 }) => {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -5046,6 +5065,7 @@ const MetroTab = ({
     try { return JSON.parse(localStorage.getItem("metro_sim") || "null"); } catch (e) { return null; }
   });
   const [simOpen, setSimOpen] = useState(false);
+  useEffect(() => { if (simRequest) setSimOpen(true); }, [simRequest]);
   const [gps, setGps] = useState(null);
   const [gpsOn, setGpsOn] = useState(() => localStorage.getItem("metro_gps") === "1");
   const now = useMetroClock(sim);
@@ -5152,7 +5172,7 @@ const MetroTab = ({
       {view.level === "station" && (
         <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
           depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
-          showToast={showToast} winterRoutes={winterRoutes} />
+          showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} />
       )}
       {toast && (
         <div role="status" style={{ position: "fixed", left: 16, right: 16, bottom: "calc(100px + env(safe-area-inset-bottom))", zIndex: 90, background: "#1C1B19", color: "#fff", borderRadius: 14, padding: "10px 12px 10px 16px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 6px 20px rgba(0,0,0,.3)", fontSize: 13, fontWeight: 700 }}>
@@ -5415,8 +5435,8 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
       <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
         {isPre ? (
           <>
-            <button onClick={() => { haptic(); openSim(); }} style={chipStyle("#FFF6E3", "#E89B00", "#5A4300")}>試玩旅途中畫面</button>
-            <button onClick={() => { haptic(); go({ level: "station", day: 0, spot: 0 }); }} style={chipStyle("#EAF2FB", "#1767B3", "#0F3F70")}>購物清單 {shopCount} 項</button>
+            <button onClick={() => { haptic(); go({ level: "station", day: 0, spot: 0 }); }} style={chipStyle("#FFF1E8", "#D9822B", "#6B3A00")}>購物清單 {shopCount} 項</button>
+            <button onClick={() => { haptic(); go({ level: "day", day: 0 }); }} style={chipStyle("#EAF2FB", "#1767B3", "#0F3F70")}>第一天 {spots.length} 站</button>
           </>
         ) : (
           <>
@@ -5623,7 +5643,7 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 // ---- ③ 站點提醒 ----
 const StationPage = ({
   tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
-  openExpenseModal, openChainFinder, showToast, winterRoutes, sim,
+  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice,
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
   const copyMapCode = () => {
@@ -5694,7 +5714,10 @@ const StationPage = ({
             </div>
           ))}
           {!matches.length && !unbought.length && <div style={{ fontSize: 13, color: METRO.sub }}>清單都買齊了</div>}
-          <div style={{ fontSize: 11, color: METRO.sub }}>「地圖找」會在 Google 地圖搜這站附近；想問營業時間、有沒有貨，可在地圖裡直接問 Gemini。打勾會存在手機，離線也記得。</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <PillBtn dark onClick={() => { launchGeminiPrice(); showToast("比價指令已複製，到 Gemini 貼上後拍標價"); }}>📸 拍照比價・抓地雷</PillBtn>
+          </div>
+          <div style={{ fontSize: 11, color: METRO.sub }}>「地圖找」在 Google 地圖搜這站附近。打勾會存在手機，離線也記得。</div>
         </SectionCard>
 
         {next && (
@@ -7033,236 +7056,11 @@ ${JSON.stringify(hotelWithDates)}
     }
   };
 
-  return (
-    <div className={"min-h-screen bg-[#F9F7F5] " + (activeTab === "metro" ? (metroView.level === "station" ? "" : "pb-24 !bg-[#F7F4EE]") : "pb-24")}>
-      {activeTab !== "metro" && <nav className="sticky top-0 z-50 bg-[#F9F7F5]/90 backdrop-blur-md p-4 border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-full border-2 border-[#E4C2C1] overflow-hidden">
-              <img
-                src={window.APP_LOGO || "logo.jpg"}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.target.src = "https://placehold.co/100";
-                }}
-              />
-            </div>
-            <h1 className="font-black text-lg text-gray-800">
-              {window.APP_TITLE || "親子遊"}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <CurrencySwitcher
-              selectedCurrency={selectedCurrency}
-              exchangeRate={exchangeRate}
-              isRateLoading={isRateLoading}
-              setSelectedCurrency={setSelectedCurrency}
-            />
-
-            {/* Auto Ticket Button */}
-            <button
-              onClick={handleEstimateTickets}
-              className={`p-2 rounded-full text-white shadow-md transition-all flex items-center justify-center w-9 h-9 ${
-                isTicketEstimating
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-[#E4C2C1] hover:brightness-110"
-              }`}
-              title="AI 估算票價"
-              disabled={isTicketEstimating}
-            >
-              {isTicketEstimating ? (
-                <Icons.Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Icons.Ticket size={18} />
-              )}
-            </button>
-
-            {/* Map FAB */}
-            <button
-              onClick={handleOpenMap}
-              className="bg-[#A9BFA8] p-2 rounded-full text-white shadow-md hover:brightness-110 transition-all flex items-center justify-center w-9 h-9"
-              title="預覽地圖"
-            >
-              <Icons.Map size={18} />
-            </button>
-
-            <button
-              onClick={() => setIsKeyModalOpen(true)}
-              className="p-2 bg-white rounded-full text-gray-400 border border-gray-200 hover:text-[#E4C2C1] hover:border-[#E4C2C1] transition-all shadow-sm"
-            >
-              <Icons.Settings size={20} />
-            </button>
-          </div>
-        </div>
-      </nav>}
-      {activeTab === "metro" && (
-        <MetroTab
-          tripData={tripData}
-          view={metroView}
-          go={metroGo}
-          back={metroBack}
-          shoppingList={shoppingList}
-          toggleBought={toggleBought}
-          handleDepartureToggle={handleDepartureToggle}
-          simDeps={simDeps}
-          setSimDeps={setSimDeps}
-          openExpenseModal={openExpenseModal}
-          openChainFinder={openChainFinder}
-          scanSpotNearby={scanSpotNearby}
-          openSettings={() => setIsKeyModalOpen(true)}
-          openDetail={(dayId) => { setSelectedDay(dayId); setActiveTab("itinerary"); }}
-          winterRoutes={window.WINTER_ROUTES}
-        />
-      )}
-      <main className={activeTab === "metro" ? "hidden" : "max-w-5xl mx-auto p-4 md:p-8"}>
-        {activeTab === "itinerary" && (
-          <ItineraryTab
-            tripData={tripData}
-            selectedDay={selectedDay}
-            setSelectedDay={setSelectedDay}
-            dayStartTimes={dayStartTimes}
-            handleDayStartTimeChange={handleDayStartTimeChange}
-            handleDepartureToggle={handleDepartureToggle}
-            handleTransportToggle={handleTransportToggle}
-            handleStayChangeNew={handleStayChangeNew}
-            openExpenseModal={openExpenseModal}
-            transportModes={transportModes}
-            expenses={expenses}
-            getTicketCounts={getTicketCounts}
-            updateSpotTicketCount={updateSpotTicketCount}
-            STAY_OPTIONS={window.STAY_OPTIONS}
-            ticketOverrides={ticketOverrides}
-            handleManualTicketEdit={handleManualTicketEdit}
-            isTicketEstimating={isTicketEstimating}
-            getMatchingItems={getMatchingItems}
-            scanSpotNearby={scanSpotNearby}
-            openChainFinder={openChainFinder}
-            openKeyModal={setIsKeyModalOpen}
-          />
-        )}
-        {activeTab === "info" && <InfoTab />}
-        {activeTab === "stats" && (
-          <StatsTab
-            dailyStats={dailyStats}
-            stats={stats}
-            selectedCurrency={selectedCurrency}
-            exchangeRate={exchangeRate}
-            handleOpenDailyDetail={(d) => {
-              setSelectedDailyStats(d);
-              setIsDailyDetailOpen(true);
-            }}
-            handleOpenEmailClick={() => setIsEmailModalOpen(true)}
-            syncStatus={syncStatus}
-            onSyncNow={syncNow}
-            syncEnabled={!!SYNC_BASE}
-          />
-        )}
-        {activeTab === "guard" && (
-          <GuardTab
-            tripData={tripData}
-            flightInfo={window.FLIGHT_INFO}
-            hotelInfo={window.HOTEL_INFO}
-            openKeyModal={setIsKeyModalOpen}
-            aiLoading={aiLoading}
-            setAiLoading={setAiLoading}
-          />
-        )}
-        {activeTab === "compare" && (
-          <CompareTab
-            aiLoading={aiLoading}
-            setAiLoading={setAiLoading}
-            openKeyModal={setIsKeyModalOpen}
-            twdJpyRate={twdJpyRate}
-          />
-        )}
-        {activeTab === "wishlist" && (
-          <WishlistTab
-            aiLoading={aiLoading}
-            setAiLoading={setAiLoading}
-            openKeyModal={setIsKeyModalOpen}
-          />
-        )}
-      </main>
-      {/* 連鎖店搜尋面板 */}
-      {showChainPanel && chainMidpoint && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center" onClick={() => setShowChainPanel(false)}>
-          <div className="bg-white w-full max-w-lg rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-1">
-              <h2 className="text-lg font-black text-gray-900">🍚 沿途連鎖店</h2>
-              <button onClick={() => setShowChainPanel(false)} className="p-2 text-gray-400"><Icons.X size={24} /></button>
-            </div>
-            <div className="text-xs text-gray-400 mb-1">{chainMidpoint.fromName} → {chainMidpoint.toName}</div>
-            <div className="bg-gray-50 rounded-lg px-3 py-2 mb-3 text-center text-sm">
-              📏 直達 <span className="font-black text-gray-900">{chainMidpoint.d1km} km</span>
-              {chainMidpoint.d1min != null && (
-                <span className="text-gray-500"> ・🚗 約 {chainMidpoint.d1min} 分</span>
-              )}
-              {chainMidpoint.passMinutes != null && (
-                <span className="text-gray-400 text-xs"> ・預計 {minutesToTimeStr(chainMidpoint.passMinutes)} 出發</span>
-              )}
-            </div>
-
-            <div className="text-[11px] text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 leading-relaxed">
-              點品牌後會<b>自動複製關鍵字</b>並開啟 Google Maps 導航（目前位置 → {chainMidpoint.toName}）。
-              在 Maps 按「<b>⋮ 新增停靠站</b>」→ 長按<b>貼上</b>關鍵字，即可沿路線即時搜尋、自選分店。
-            </div>
-            {copiedChain && (
-              <div className="text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
-                ✅ 已複製「{copiedChain}」，到 Maps 新增停靠站貼上即可
-              </div>
-            )}
-            <div className="space-y-2">
-              {[
-                { cat: "丼飯", label: "🍚 丼飯連鎖", box: "bg-orange-50 border-orange-200 text-orange-800", head: "text-orange-600" },
-                { cat: "超市", label: "🛒 超市", box: "bg-green-50 border-green-200 text-green-800", head: "text-green-600" },
-                { cat: "挖寶", label: "🎁 挖寶（二手）", box: "bg-purple-50 border-purple-200 text-purple-800", head: "text-purple-600" },
-                { cat: "文具", label: "✏️ 文具／生活雜貨", box: "bg-blue-50 border-blue-200 text-blue-800", head: "text-blue-600" },
-                { cat: "家電", label: "🔌 家電量販", box: "bg-purple-50 border-purple-200 text-purple-800", head: "text-purple-600" },
-              ].map((g) => {
-                const items = chains.filter((c) => c.cat === g.cat);
-                if (items.length === 0) return null;
-                return (
-                  <div key={g.cat}>
-                    <div className={`text-xs font-bold mb-2 ${g.head}`}>{g.label}</div>
-                    <div className="grid grid-cols-2 gap-2 mb-4">
-                      {items.map((c, i) => (
-                        <button key={i} onClick={() => launchChain(c, chainMidpoint)}
-                          className={`flex items-center gap-2 p-3 rounded-xl border-2 text-sm font-bold text-left active:scale-95 transition ${g.box}`}>
-                          <span className="text-lg">{c.icon}</span><span className="flex-1 min-w-0 truncate">{c.name}</span><span className="text-xs">🚗</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 購物清單浮動按鈕 */}
-      {activeTab !== "metro" && <button
-        onClick={() => { if (!showShoppingPanel && SHOP_BASE) syncNow(); setShowShoppingPanel(!showShoppingPanel); }}
-        className="fixed bottom-20 right-4 z-50 w-14 h-14 bg-amber-500 text-white rounded-full shadow-lg flex items-center justify-center text-2xl active:scale-90 transition-transform"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        🛒
-        {shoppingList.filter(i => !i.bought).length > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-            {shoppingList.filter(i => !i.bought).length}
-          </span>
-        )}
-      </button>}
-
-      {/* 購物清單面板 */}
-      {showShoppingPanel && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center" onClick={() => { setShowShoppingPanel(false); setNearbyResults(null); }}>
-          <div className="bg-white w-full max-w-lg rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-black text-gray-900">🛒 購物清單</h2>
-              <button onClick={() => { setShowShoppingPanel(false); setNearbyResults(null); }} className="p-2 text-gray-400"><Icons.X size={24} /></button>
-            </div>
-
+  const [showMore, setShowMore] = useState(false);
+  const [metroSimRequest, setMetroSimRequest] = useState(0);
+  const launchGeminiPriceCheck = () => launchGemini(window.GEMINI_PRICE_PROMPT || GEMINI_PRICE_PROMPT_DEFAULT);
+  const shoppingBody = (
+    <>
             {/* 清單項目 */}
             <div className="space-y-2 mb-4">
               {shoppingList.map(item => (
@@ -7358,6 +7156,258 @@ ${JSON.stringify(hotelWithDates)}
                 )}
               </div>
             )}
+    </>
+  );
+  return (
+    <div className={"min-h-screen bg-[#F9F7F5] " + (activeTab === "metro" ? (metroView.level === "station" ? "" : "pb-24 !bg-[#F7F4EE]") : "pb-24")}>
+      {activeTab !== "metro" && <nav className="sticky top-0 z-50 bg-[#F9F7F5]/90 backdrop-blur-md p-4 border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white rounded-full border-2 border-[#E4C2C1] overflow-hidden">
+              <img
+                src={window.APP_LOGO || "logo.jpg"}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.target.src = "https://placehold.co/100";
+                }}
+              />
+            </div>
+            <h1 className="font-black text-lg text-gray-800">
+              {window.APP_TITLE || "親子遊"}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <CurrencySwitcher
+              selectedCurrency={selectedCurrency}
+              exchangeRate={exchangeRate}
+              isRateLoading={isRateLoading}
+              setSelectedCurrency={setSelectedCurrency}
+            />
+
+            {/* Auto Ticket Button */}
+            <button
+              onClick={handleEstimateTickets}
+              className={`p-2 rounded-full text-white shadow-md transition-all flex items-center justify-center w-9 h-9 ${
+                isTicketEstimating
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-[#E4C2C1] hover:brightness-110"
+              }`}
+              title="AI 估算票價"
+              disabled={isTicketEstimating}
+            >
+              {isTicketEstimating ? (
+                <Icons.Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Icons.Ticket size={18} />
+              )}
+            </button>
+
+            {/* Map FAB */}
+            <button
+              onClick={handleOpenMap}
+              className="bg-[#A9BFA8] p-2 rounded-full text-white shadow-md hover:brightness-110 transition-all flex items-center justify-center w-9 h-9"
+              title="預覽地圖"
+            >
+              <Icons.Map size={18} />
+            </button>
+
+            <button
+              onClick={() => setIsKeyModalOpen(true)}
+              className="p-2 bg-white rounded-full text-gray-400 border border-gray-200 hover:text-[#E4C2C1] hover:border-[#E4C2C1] transition-all shadow-sm"
+            >
+              <Icons.Settings size={20} />
+            </button>
+          </div>
+        </div>
+      </nav>}
+      {activeTab === "metro" && (
+        <MetroTab
+          tripData={tripData}
+          view={metroView}
+          go={metroGo}
+          back={metroBack}
+          shoppingList={shoppingList}
+          toggleBought={toggleBought}
+          handleDepartureToggle={handleDepartureToggle}
+          simDeps={simDeps}
+          setSimDeps={setSimDeps}
+          openExpenseModal={openExpenseModal}
+          openChainFinder={openChainFinder}
+          scanSpotNearby={scanSpotNearby}
+          openSettings={() => setShowMore(true)}
+          simRequest={metroSimRequest}
+          launchGemini={launchGeminiPriceCheck}
+          openDetail={(dayId) => { setSelectedDay(dayId); setActiveTab("itinerary"); }}
+          winterRoutes={window.WINTER_ROUTES}
+        />
+      )}
+      <main className={activeTab === "metro" ? "hidden" : "max-w-5xl mx-auto p-4 md:p-8"}>
+        {activeTab === "itinerary" && (
+          <ItineraryTab
+            tripData={tripData}
+            selectedDay={selectedDay}
+            setSelectedDay={setSelectedDay}
+            dayStartTimes={dayStartTimes}
+            handleDayStartTimeChange={handleDayStartTimeChange}
+            handleDepartureToggle={handleDepartureToggle}
+            handleTransportToggle={handleTransportToggle}
+            handleStayChangeNew={handleStayChangeNew}
+            openExpenseModal={openExpenseModal}
+            transportModes={transportModes}
+            expenses={expenses}
+            getTicketCounts={getTicketCounts}
+            updateSpotTicketCount={updateSpotTicketCount}
+            STAY_OPTIONS={window.STAY_OPTIONS}
+            ticketOverrides={ticketOverrides}
+            handleManualTicketEdit={handleManualTicketEdit}
+            isTicketEstimating={isTicketEstimating}
+            getMatchingItems={getMatchingItems}
+            scanSpotNearby={scanSpotNearby}
+            openChainFinder={openChainFinder}
+            openKeyModal={setIsKeyModalOpen}
+          />
+        )}
+        {activeTab === "info" && <InfoTab />}
+        {activeTab === "stats" && (
+          <StatsTab
+            dailyStats={dailyStats}
+            stats={stats}
+            selectedCurrency={selectedCurrency}
+            exchangeRate={exchangeRate}
+            handleOpenDailyDetail={(d) => {
+              setSelectedDailyStats(d);
+              setIsDailyDetailOpen(true);
+            }}
+            handleOpenEmailClick={() => setIsEmailModalOpen(true)}
+            syncStatus={syncStatus}
+            onSyncNow={syncNow}
+            syncEnabled={!!SYNC_BASE}
+          />
+        )}
+        {activeTab === "guard" && (
+          <GuardTab
+            tripData={tripData}
+            flightInfo={window.FLIGHT_INFO}
+            hotelInfo={window.HOTEL_INFO}
+            openKeyModal={setIsKeyModalOpen}
+            aiLoading={aiLoading}
+            setAiLoading={setAiLoading}
+          />
+        )}
+        {activeTab === "compare" && (
+          <CompareTab
+            aiLoading={aiLoading}
+            setAiLoading={setAiLoading}
+            openKeyModal={setIsKeyModalOpen}
+            twdJpyRate={twdJpyRate}
+          />
+        )}
+        {activeTab === "list" && (
+          <div className="space-y-6 pb-20">
+            <button onClick={launchGeminiPriceCheck} className="w-full flex items-center gap-3 p-4 rounded-2xl bg-[#1C1B19] text-white text-left shadow-lg active:scale-[.98] transition-transform">
+              <span className="text-3xl">📸</span>
+              <span className="flex-1"><span className="block font-black text-base">拍照比價・抓地雷（手機 Gemini）</span><span className="block text-xs text-white/70">按一下 → 開啟 Gemini → 貼上指令 → 拍標價。算台幣、比台灣行情、提醒缺件盜版</span></span>
+            </button>
+            <div className="glass-panel p-5 rounded-3xl bg-white border-gray-100 shadow-lg">
+              <h2 className="text-xl font-black text-gray-900 mb-3">🛒 購物清單</h2>
+              {shoppingBody}
+            </div>
+            <WishlistTab
+              aiLoading={aiLoading}
+              setAiLoading={setAiLoading}
+              openKeyModal={setIsKeyModalOpen}
+            />
+          </div>
+        )}
+        {activeTab === "wishlist" && (
+          <WishlistTab
+            aiLoading={aiLoading}
+            setAiLoading={setAiLoading}
+            openKeyModal={setIsKeyModalOpen}
+          />
+        )}
+      </main>
+      {/* 連鎖店搜尋面板 */}
+      {showChainPanel && chainMidpoint && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center" onClick={() => setShowChainPanel(false)}>
+          <div className="bg-white w-full max-w-lg rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-1">
+              <h2 className="text-lg font-black text-gray-900">🍚 沿途連鎖店</h2>
+              <button onClick={() => setShowChainPanel(false)} className="p-2 text-gray-400"><Icons.X size={24} /></button>
+            </div>
+            <div className="text-xs text-gray-400 mb-1">{chainMidpoint.fromName} → {chainMidpoint.toName}</div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2 mb-3 text-center text-sm">
+              📏 直達 <span className="font-black text-gray-900">{chainMidpoint.d1km} km</span>
+              {chainMidpoint.d1min != null && (
+                <span className="text-gray-500"> ・🚗 約 {chainMidpoint.d1min} 分</span>
+              )}
+              {chainMidpoint.passMinutes != null && (
+                <span className="text-gray-400 text-xs"> ・預計 {minutesToTimeStr(chainMidpoint.passMinutes)} 出發</span>
+              )}
+            </div>
+
+            <div className="text-[11px] text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 leading-relaxed">
+              點品牌後會<b>自動複製關鍵字</b>並開啟 Google Maps 導航（目前位置 → {chainMidpoint.toName}）。
+              在 Maps 按「<b>⋮ 新增停靠站</b>」→ 長按<b>貼上</b>關鍵字，即可沿路線即時搜尋、自選分店。
+            </div>
+            {copiedChain && (
+              <div className="text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
+                ✅ 已複製「{copiedChain}」，到 Maps 新增停靠站貼上即可
+              </div>
+            )}
+            <div className="space-y-2">
+              {[
+                { cat: "丼飯", label: "🍚 丼飯連鎖", box: "bg-orange-50 border-orange-200 text-orange-800", head: "text-orange-600" },
+                { cat: "超市", label: "🛒 超市", box: "bg-green-50 border-green-200 text-green-800", head: "text-green-600" },
+                { cat: "挖寶", label: "🎁 挖寶（二手）", box: "bg-purple-50 border-purple-200 text-purple-800", head: "text-purple-600" },
+                { cat: "文具", label: "✏️ 文具／生活雜貨", box: "bg-blue-50 border-blue-200 text-blue-800", head: "text-blue-600" },
+                { cat: "家電", label: "🔌 家電量販", box: "bg-purple-50 border-purple-200 text-purple-800", head: "text-purple-600" },
+              ].map((g) => {
+                const items = chains.filter((c) => c.cat === g.cat);
+                if (items.length === 0) return null;
+                return (
+                  <div key={g.cat}>
+                    <div className={`text-xs font-bold mb-2 ${g.head}`}>{g.label}</div>
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                      {items.map((c, i) => (
+                        <button key={i} onClick={() => launchChain(c, chainMidpoint)}
+                          className={`flex items-center gap-2 p-3 rounded-xl border-2 text-sm font-bold text-left active:scale-95 transition ${g.box}`}>
+                          <span className="text-lg">{c.icon}</span><span className="flex-1 min-w-0 truncate">{c.name}</span><span className="text-xs">🚗</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 購物清單浮動按鈕 */}
+      {false && <button
+        onClick={() => { if (!showShoppingPanel && SHOP_BASE) syncNow(); setShowShoppingPanel(!showShoppingPanel); }}
+        className="fixed bottom-20 right-4 z-50 w-14 h-14 bg-amber-500 text-white rounded-full shadow-lg flex items-center justify-center text-2xl active:scale-90 transition-transform"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        🛒
+        {shoppingList.filter(i => !i.bought).length > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+            {shoppingList.filter(i => !i.bought).length}
+          </span>
+        )}
+      </button>}
+
+      {/* 購物清單面板 */}
+      {showShoppingPanel && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center" onClick={() => { setShowShoppingPanel(false); setNearbyResults(null); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-black text-gray-900">🛒 購物清單</h2>
+              <button onClick={() => { setShowShoppingPanel(false); setNearbyResults(null); }} className="p-2 text-gray-400"><Icons.X size={24} /></button>
+            </div>
+
+            {shoppingBody}
           </div>
         </div>
       )}
@@ -7365,7 +7415,7 @@ ${JSON.stringify(hotelWithDates)}
       {!(activeTab === "metro" && metroView.level === "station") && <div className="fixed bottom-0 w-full bg-white/95 backdrop-blur-md border-t-2 border-gray-200 z-40 flex justify-around pt-2 text-xs font-bold text-gray-500" style={{ paddingBottom: "calc(8px + env(safe-area-inset-bottom))" }}>
         <button
           onClick={() => setActiveTab("metro")}
-          className={`flex flex-col items-center gap-1 p-2 min-w-[56px] ${
+          className={`flex flex-col items-center gap-1 p-2 min-w-[64px] ${
             activeTab === "metro" || activeTab === "itinerary" ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
@@ -7373,45 +7423,65 @@ ${JSON.stringify(hotelWithDates)}
         </button>
         <button
           onClick={() => setActiveTab("info")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "info" ? "text-indigo-600" : "hover:text-gray-900"
+          className={`flex flex-col items-center gap-1 p-2 min-w-[64px] ${
+            activeTab === "info" ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
           <Icons.LayoutGrid size={26} /> 資訊
         </button>
         <button
-          onClick={() => setActiveTab("stats")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "stats" ? "text-indigo-600" : "hover:text-gray-900"
+          onClick={() => { if (SHOP_BASE) syncNow(); setActiveTab("list"); }}
+          className={`relative flex flex-col items-center gap-1 p-2 min-w-[64px] ${
+            activeTab === "list" ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
-          <Icons.Calculator size={26} /> 統計
+          <span className="text-[22px] leading-[26px]">🛍️</span> 清單
+          {shoppingList.filter(i => !i.bought).length > 0 && (
+            <span className="absolute top-1 right-2 bg-[#E2342F] text-white text-[10px] min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center font-black">
+              {shoppingList.filter(i => !i.bought).length}
+            </span>
+          )}
         </button>
         <button
-          onClick={() => setActiveTab("guard")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "guard" ? "text-indigo-600" : "hover:text-gray-900"
+          onClick={() => setShowMore(true)}
+          className={`flex flex-col items-center gap-1 p-2 min-w-[64px] ${
+            ["stats", "guard", "compare"].includes(activeTab) ? "text-[#13804A]" : "hover:text-gray-900"
           }`}
         >
-          <Icons.Shield size={26} /> 防雷
-        </button>
-        <button
-          onClick={() => setActiveTab("compare")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "compare" ? "text-indigo-600" : "hover:text-gray-900"
-          }`}
-        >
-          <span className="text-[22px] leading-[26px]">💱</span> 比價
-        </button>
-        <button
-          onClick={() => setActiveTab("wishlist")}
-          className={`flex flex-col items-center gap-1 p-2 ${
-            activeTab === "wishlist" ? "text-indigo-600" : "hover:text-gray-900"
-          }`}
-        >
-          <Icons.Heart size={26} /> 願望
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.4" /><circle cx="12" cy="12" r="2.4" /><circle cx="19" cy="12" r="2.4" /></svg> 更多
         </button>
       </div>}
+      {showMore && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-end" onClick={() => setShowMore(false)}>
+          <div className="bg-white w-full rounded-t-3xl p-4" style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }} onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded bg-gray-300 mx-auto mb-3" />
+            <div className="text-xs text-gray-400 px-2 mb-2">不常用的功能都收在這裡</div>
+            {[
+              ["stats", "📊", "統計", "總花費・每日明細・寄帳單"],
+              ["guard", "🛡️", "防雷", "雪況路況・航班飯店・緊急應變（各站卡片也會自動顯示當天路況）"],
+              ["compare", "💱", "比價（網頁版）", "手動輸入品名比價；店內建議改用下面的拍照比價"],
+            ].map(([t, ic, name, desc]) => (
+              <button key={t} onClick={() => { setShowMore(false); setActiveTab(t); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+                <span className="text-2xl w-9 text-center">{ic}</span>
+                <span className="flex-1"><span className="block font-black text-gray-800">{name}</span><span className="block text-xs text-gray-400">{desc}</span></span>
+              </button>
+            ))}
+            <button onClick={() => { setShowMore(false); launchGeminiPriceCheck(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-[#EAF2FB] text-left min-h-[56px] mt-1">
+              <span className="text-2xl w-9 text-center">📸</span>
+              <span className="flex-1"><span className="block font-black text-[#0F3F70]">拍照比價（手機 Gemini）</span><span className="block text-xs text-[#0F3F70]/70">複製指令並開啟 Gemini，拍標價就能算台幣＋比行情＋抓地雷</span></span>
+            </button>
+            <div className="border-t border-gray-100 my-2" />
+            <button onClick={() => { setShowMore(false); setMetroSimRequest(Date.now()); setActiveTab("metro"); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">🎮</span>
+              <span className="flex-1"><span className="block font-black text-gray-800">試玩旅途中畫面</span><span className="block text-xs text-gray-400">出發前預覽「我在這」的樣子</span></span>
+            </button>
+            <button onClick={() => { setShowMore(false); setIsKeyModalOpen(true); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">⚙️</span>
+              <span className="flex-1"><span className="block font-black text-gray-800">設定</span><span className="block text-xs text-gray-400">Gemini 金鑰・主題</span></span>
+            </button>
+          </div>
+        </div>
+      )}
       <ApiKeyModal
         isOpen={isKeyModalOpen}
         onClose={() => setIsKeyModalOpen(false)}

@@ -2,7 +2,7 @@
 // config.js - 2027 寒假山陰鳥取冬遊
 // Generated from: Google 我的地圖「2027寒假山陰鳥取冬遊」(KML, 6 天 / 72 點)
 // 程式底版：kyushu-trip v47
-// 租車：NIPPON 租車 神戶機場港島營業所（Tabirai 預約，保證雪胎 VOXY 級）
+// 租車：ORIX 租車 神戶機場受付カウンター（預約 W8291303，WA(8) 雪胎廂型車），車放在三宮駅前店，機場↔店接駁約 15 分
 // ==========================================
 
 // 1. APP 基本設定
@@ -24,8 +24,8 @@ window.RAW_KML_DATA = [
   {
     dayId: "day1", date: "1/25 (一)", title: "神戶港區", themeColor: "bg-[#A2C4C9]",
     spots: [
-      { sid: "sp001", name: "神戶機場", lat: 34.6350979, lon: 135.2267037, desc: "[✈️ 去程航班] 2027年1月25日 (一) 長榮航空 BR 134 (機型：AIRBUS A321) 06:30 桃園國際機場 (TPE) 第二航廈 起飛 10:00 神戶機場 (UKB) 第二航廈 抵達 訂位代號： FDEK8N ｜ 🚗 入境後前往第1航廈 NIPPON 租車櫃台。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp002", name: "NIPPON租車 神戶機場港島營業所", lat: 34.6587841, lon: 135.2174172, desc: "🚗 取車：抵達神戶機場後，到【第1航廈】入境大廳左側 NIPPON 租車櫃台報到，再搭接駁車（約 10 分）到港島營業所辦手續。BR134 在第2航廈抵達，先步行到第1航廈。預約：Tabirai｜NIPPON 保證雪胎 VOXY／STEP WGN 級（8 人座），11:00 取車。", mapCode: "12 251 644", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp001", name: "神戶機場", lat: 34.6350979, lon: 135.2267037, desc: "[✈️ 去程航班] 2027年1月25日 (一) 長榮航空 BR 134 (機型：AIRBUS A321) 06:30 桃園國際機場 (TPE) 第二航廈 起飛 10:00 神戶機場 (UKB) 第二航廈 抵達 訂位代號： FDEK8N ｜ 🚗 入境後步行到【第1航廈 1F 入境出口左手邊】ORIX 租車櫃台報到（櫃台不常駐人員，若沒人打 078-261-0543）。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp002", name: "ORIX租車 三宮駅前店（取車）", lat: 34.69318, lon: 135.19697, desc: "🚗 取車 11:00：BR134 在第2航廈抵達 → 步行到第1航廈 1F 入境出口左手邊 ORIX 櫃台報到 → 搭接駁車約 15 分到三宮駅前店（八幡通3-2-23 地下1樓）辦手續、驗車。預約號碼 W8291303｜WA(8) 禁煙 雪胎廂型車｜ETC 卡已加｜免責＋安心パック已加｜現場付款 ¥122,343｜取車時親眼確認四輪都是スタッドレス。電話 078-261-0543。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp003", name: "科學館周圍停車場Port Island Minami Koen Parking Lot", lat: 34.6637936, lon: 135.2150542, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp004", name: "步行到 Bando Kobe Science Museum", lat: 34.6658629, lon: 135.218482, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp005", name: "BOOKOFF SUPER BAZAAR", lat: 34.6510902, lon: 135.1516484, desc: "要買滑雪盆和雪球夾", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
@@ -104,22 +104,22 @@ window.RAW_KML_DATA = [
     ],
   },
   {
-    dayId: "day6", date: "1/30 (六)", title: "沿海回程至神戶", themeColor: "bg-[#B8C9DD]",
+    dayId: "day6", date: "1/30 (六)", title: "沿海回程至神戶", themeColor: "bg-[#B8C9DD]", defaultStart: "08:30",
     spots: [
-      { sid: "sp058", name: "中央地下駐車場（大手前地下駐車場）", lat: 34.8344235, lon: 134.6930485, desc: "🕘 09:00 - 10:15", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp059", name: "步行到 姬路城", lat: 34.839449, lon: 134.6939047, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp060", name: "步行到 高田之馬場 (高田の馬場) Takata-no-baba", lat: 34.8355162, lon: 134.691956, desc: "位於姬路城正對面的大型土特產店，商品種類齊全，包含熱門的立體紙雕、白皮革製品與各種文創小物。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp061", name: "步行到 姬路城賣店 Himeji Castle Souvenir Store", lat: 34.8382958, lon: 134.6926893, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp062", name: "步行到 西之丸茶店 (Nishinomaru tea house) 購買紀念品", lat: 34.8375686, lon: 134.6925807, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp063", name: "Hobby Off Himeji Mitachi", lat: 34.8580432, lon: 134.6608538, desc: "🕘 10:35 - 10:45　布偶多", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp064", name: "Off House", lat: 34.854022, lon: 134.7119385, desc: "🕘 10:45 - 11:30", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp065", name: "Otakara Ichibankan Kakogawa", lat: 34.7513102, lon: 134.8287628, desc: "🕘 12:10 - 12:50　有樂高", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp066", name: "ハイマートベルク アウトドアショップ", lat: 34.7574844, lon: 134.8321216, desc: "🕘 12:50 - 13:35　Yamatomichi Sacoche包", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp067", name: "HobbyOff Kobe-Seiryodai", lat: 34.647875, lon: 135.050033, desc: "🕘 14:20 - 15:00", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp068", name: "神戶海洋博物館停車場", lat: 34.6813962, lon: 135.1877593, desc: "🕘 15:45 - 16:30", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp071", name: "步行到 神戶海洋博物館・川崎世界", lat: 34.68291, lon: 135.1883, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp069", name: "NIPPON租車 神戶機場港島營業所（還車）", lat: 34.6587841, lon: 135.2174172, desc: "🚗 16:30 從神戶海洋博物館出發 → 17:00 還車（先在港島加滿油）。還車後搭接駁車（約 10 分，8:30–19:00）或走到樓下 Port Liner「醫療中心站」搭 6 分鐘到神戶機場。接駁車與 Port Liner 都到第1航廈，BR175 在第2航廈，再步行約 10 分。", mapCode: "12 251 644", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp070", name: "接泊到 神戶機場", lat: 34.6350979, lon: 135.2267037, desc: "[✈️ 回程航班] 2027年1月30日 (六) 長榮航空 BR 175 (機型：AIRBUS A321) 19:00 神戶機場 (UKB) 第二航廈 起飛 21:15 桃園國際機場 (TPE) 第二航廈 抵達 訂位代號： FDEK8N", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp058", defaultStay: "0 min", name: "中央地下駐車場（大手前地下駐車場）", lat: 34.8344235, lon: 134.6930485, desc: "🕘 09:00 - 10:15", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp059", defaultStay: "50 min", name: "步行到 姬路城", lat: 34.839449, lon: 134.6939047, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp060", defaultStay: "15 min", name: "步行到 高田之馬場 (高田の馬場) Takata-no-baba", lat: 34.8355162, lon: 134.691956, desc: "位於姬路城正對面的大型土特產店，商品種類齊全，包含熱門的立體紙雕、白皮革製品與各種文創小物。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp061", defaultStay: "10 min", name: "步行到 姬路城賣店 Himeji Castle Souvenir Store", lat: 34.8382958, lon: 134.6926893, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp062", defaultStay: "10 min", name: "步行到 西之丸茶店 (Nishinomaru tea house) 購買紀念品", lat: 34.8375686, lon: 134.6925807, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp063", defaultStay: "20 min", name: "Hobby Off Himeji Mitachi", lat: 34.8580432, lon: 134.6608538, desc: "🕘 10:35 - 10:45　布偶多", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp064", defaultStay: "30 min", name: "Off House", lat: 34.854022, lon: 134.7119385, desc: "🕘 10:45 - 11:30", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp065", defaultStay: "30 min", name: "Otakara Ichibankan Kakogawa", lat: 34.7513102, lon: 134.8287628, desc: "🕘 12:10 - 12:50　有樂高", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp066", defaultStay: "30 min", name: "ハイマートベルク アウトドアショップ", lat: 34.7574844, lon: 134.8321216, desc: "🕘 12:50 - 13:35　Yamatomichi Sacoche包", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp067", defaultStay: "30 min", name: "HobbyOff Kobe-Seiryodai", lat: 34.647875, lon: 135.050033, desc: "🕘 14:20 - 15:00", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp068", defaultStay: "0 min", name: "神戶海洋博物館停車場", lat: 34.6813962, lon: 135.1877593, desc: "🕘 15:20 - 16:00　最晚 16:05 離開，先加油再還車", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp071", defaultStay: "30 min", name: "步行到 神戶海洋博物館・川崎世界", lat: 34.68291, lon: 135.1883, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp069", defaultStay: "20 min", name: "ORIX租車 三宮駅前店（還車）", lat: 34.69318, lon: 135.19697, desc: "🚗 16:30 還車（八幡通3-2-23 地下1樓，營業到 20:00）。16:05 從海洋博物館出發，途中在三宮加滿油、留收據，約 16:25 到店。驗車後搭 ORIX 接駁車約 15 分到神戶機場第1航廈（約 16:50），再步行到第2航廈（長榮 BR175 19:00）。備案：三宮站搭 Port Liner 18 分到機場。電話 078-261-0543。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp070", defaultStay: "0 min", name: "接泊到 神戶機場（第2航廈）", lat: 34.6350979, lon: 135.2267037, desc: "[✈️ 回程航班] 2027年1月30日 (六) 長榮航空 BR 175 (機型：AIRBUS A321) 19:00 神戶機場 (UKB) 第二航廈 起飛 21:15 桃園國際機場 (TPE) 第二航廈 抵達 訂位代號： FDEK8N", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
     ],
   },
 ];
@@ -206,7 +206,7 @@ window.CHECKLIST = [
       { id: "license", text: "台灣汽車駕照【正本】（主駕與副駕都要帶，確認未過期）", critical: true },
       { id: "jptrans", text: "駕照【日文譯本】（監理所申請的 A4 紙）※ 國際駕照在日本不通用", critical: true },
       { id: "creditcard", text: "主駕本人名下信用卡（現場付款用）", critical: true },
-      { id: "rentalvoucher", text: "Tabirai／NIPPON 租車預約確認信（預約號碼截圖存離線）", critical: true },
+      { id: "rentalvoucher", text: "ORIX 租車預約確認信（預約號碼 W8291303 截圖存離線）", critical: true },
       { id: "eticket", text: "長榮 BR134／BR175 電子機票、訂位代號 FDEK8N" },
       { id: "hotelvoucher", text: "五晚飯店訂房確認信（截圖存離線）" },
       { id: "insurance", text: "旅遊平安險／不便險保單號碼與客服電話（含班機因雪延誤）" },
@@ -259,10 +259,10 @@ window.CHECKLIST = [
     title: "回程當天（1/30）",
     icon: "✈️",
     items: [
-      { id: "fuel", text: "還車前在港島加滿油，保留加油收據", critical: true },
+      { id: "fuel", text: "還車前在三宮加滿油，保留加油收據", critical: true },
       { id: "carcheck", text: "車內最後巡一次（後車廂、置物箱、椅背袋、滑雪盆）" },
-      { id: "returntime", text: "17:00 前抵達 NIPPON 神戶機場港島營業所還車", critical: true },
-      { id: "terminal", text: "接駁車／Port Liner 到第1航廈 → 步行到第2航廈（長榮）" },
+      { id: "returntime", text: "16:30 前抵達 ORIX 三宮駅前店還車（16:05 離開海洋博物館）", critical: true },
+      { id: "terminal", text: "ORIX 接駁車 15 分到第1航廈 → 步行到第2航廈（長榮 BR175 19:00）" },
       { id: "taxfree", text: "免稅單據備妥（海關可能查驗）" },
     ],
   },
@@ -270,15 +270,17 @@ window.CHECKLIST = [
 
 // 7. 租車資訊
 window.CAR_RENTAL_INFO = {
-  company: "NIPPON 租車（ニッポンレンタカー）",
+  company: "ORIX 租車（オリックスレンタカー）",
+  reservation: "W8291303",
+  tel: "078-261-0543",
   pickupDate: "1/25 (一)",
   pickupTime: "11:00",
-  pickupLocation: "神戶機場港島營業所（第1航廈櫃台報到 → 接駁約 10 分）",
+  pickupLocation: "神戶機場第1航廈 1F 入境出口左側 ORIX 櫃台報到 → 接駁約 15 分到三宮駅前店取車",
   returnDate: "1/30 (六)",
-  returnTime: "17:00",
-  returnLocation: "神戶機場港島營業所 → 接駁車／Port Liner 醫療中心站 6 分到機場",
-  carType: "保證雪胎 VOXY／STEP WGN 級（7–8 人座，2000cc 以下，禁煙）",
-  note: "Tabirai 預約、現場付款 ¥151,800（含安心方案、NOC 補償、雪胎、ETC 卡）。MapCode 12 251 644。與租車公司聯絡須用英文。",
+  returnTime: "16:30",
+  returnLocation: "三宮駅前店（八幡通3-2-23 B1）還車 → ORIX 接駁車約 15 分到神戶機場第1航廈",
+  carType: "WA(8) 級 禁煙 雪胎（スタッドレス）廂型車，8 人座",
+  note: "ORIX 官網預約、現場付款 ¥122,343（含雪胎 ¥23,760、ETC 卡 ¥550、免責補償 ¥6,600、安心パック ¥7,920，白金會員折扣）。已開啟 Quick Check-in。接送班機已填 BR134／BR175。",
 };
 
 const e = React.createElement;
@@ -448,7 +450,7 @@ window.WINTER_ROUTES = [
     risk: "low",
     passes: [],
     roads: ["山陽自動車道", "阪神高速"],
-    notes: "沿海回程，最後一天預留緩衝時間。17:00 在 NIPPON 港島營業所還車，16:30 從海洋博物館出發，還車前先加滿油。",
+    notes: "沿海回程，最後一天預留緩衝時間。16:30 在 ORIX 三宮駅前店還車，16:05 從海洋博物館出發，途中在三宮加滿油。還車後接駁 15 分到機場，約 16:50 到，距 BR175 起飛 2 小時。",
     jmaArea: "兵庫県南部",
     nexcoArea: "関西"
   }
@@ -456,10 +458,10 @@ window.WINTER_ROUTES = [
 
 // 12. ❄️ 冬季駕駛必備
 window.WINTER_ESSENTIALS = {
-  tire: { title: "雪胎", detail: "已訂 NIPPON【保證配備雪胎】方案。取車時親眼確認四輪都是スタッドレス。山陰地區 1 月遇雪路無雪胎＝違法＋危險。", icon: "🛞" },
+  tire: { title: "雪胎", detail: "已訂 ORIX WA(8) 雪胎（スタッドレス）方案。取車時親眼確認四輪都是スタッドレス。山陰地區 1 月遇雪路無雪胎＝違法＋危險。", icon: "🛞" },
   chain: { title: "雪鏈", detail: "人形峠、六甲山道路可能設「チェーン規制」（僅雪胎不夠，需加鏈）。租車可加購約 ¥2,000/日。", icon: "⛓️" },
   fuel: { title: "油量", detail: "山區加油站少且冬季可能提早關門。進山前油箱保持 1/2 以上。", icon: "⛽" },
-  emergency: { title: "救援", detail: "JAF 道路救援 #8139（免費電話）。租車公司緊急聯絡：確認 NIPPON 契約書上的 24h 緊急電話（安心方案含 5 項免費道路救援）。", icon: "🆘" },
+  emergency: { title: "救援", detail: "JAF 道路救援 #8139（免費電話）。租車公司緊急聯絡：ORIX 三宮駅前店 078-261-0543／免付費 0120-29-1543，安心パック含道路救援。", icon: "🆘" },
   gear: { title: "車內必備", detail: "冰鏟、除霜噴劑（租車店可能有）、毛毯、熱水瓶、手電筒。", icon: "🧰" },
   links: [
     { name: "氣象廳 降雪預報", url: "https://www.jma.go.jp/bosai/snow/", icon: "🌨️" },
@@ -476,3 +478,6 @@ window.GEMINI_PRICE_PROMPT = `你是我的日本旅遊尋寶與比價助手。�
 2.【行情比價】辨識商品型號／番號，比對台灣網拍或二手行情，直接告訴我「值得買」「普通」或「台灣買就好」。
 3.【防雷提醒】若是二手玩具、樂高、動漫周邊或電子產品，用一句話提醒常見缺件、盜版特徵或通病。
 請用極簡條列回答，讓我在店內 3 秒看完做決定。`;
+
+// 13. ✨ AI 查核用的成員描述（站點頁「AI 查核」會把這段餵給 Gemini）
+window.TRAVELERS = "2 大 2 小（兩個小學男生，約 9–10 歲）";

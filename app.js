@@ -2198,7 +2198,7 @@ const HotelDeskCard = () => {
         🚗 租車櫃檯填表用｜飯店日文資料
       </h3>
       <p className="text-[12px] text-gray-500 leading-relaxed mb-4">
-        NIPPON 租車契約書會要求填「日本國內聯絡處」。<b>只要填第一晚（1/25 神戶元町）即可</b>，
+        ORIX 租車契約書會要求填「日本國內聯絡處」。<b>只要填第一晚（1/25 神戶元町）即可</b>，
         其餘備查。日文名稱與住址可直接照抄給櫃檯。
       </p>
       <div className="space-y-3">
@@ -2832,7 +2832,7 @@ const RentalCard = () => {
   const c = window.CAR_RENTAL_INFO;
   if (!c) return null;
   const nav = () =>
-    window.open("https://www.google.com/maps/dir/?api=1&destination=34.6587841,135.2174172", "_blank");
+    window.open("https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent("オリックスレンタカー 三宮駅前店 神戸市中央区八幡通3-2-23"), "_blank");
   return (
     <div className="glass-panel p-5 rounded-3xl bg-white border-2 border-[#A2C4C9] shadow-lg space-y-2">
       <h3 className="font-bold text-lg text-gray-800">🚗 租車｜{c.company}</h3>
@@ -2840,10 +2840,11 @@ const RentalCard = () => {
         <div>🚙 <b>{c.carType}</b></div>
         <div>📥 取車 <b>{c.pickupDate} {c.pickupTime}</b>｜{c.pickupLocation}</div>
         <div>📤 還車 <b>{c.returnDate} {c.returnTime}</b>｜{c.returnLocation}</div>
+        {c.reservation && <div>🔖 預約號碼 <b>{c.reservation}</b>{c.tel && <>｜📞 <a href={"tel:" + c.tel.replace(/-/g, "")} className="underline font-bold">{c.tel}</a></>}</div>}
         {c.note && <div className="p-2 rounded-lg bg-sky-50 border border-sky-200 text-[12px] text-sky-800 font-bold">📌 {c.note}</div>}
       </div>
       <button onClick={nav} className="w-full py-2 rounded-xl bg-gray-800 text-white text-[12px] font-bold">
-        🧭 導航到 NIPPON 港島營業所（MapCode 12 251 644）
+        🧭 導航到 ORIX 三宮駅前店（八幡通3-2-23 B1）
       </button>
     </div>
   );
@@ -3435,7 +3436,7 @@ const WinterRouteGuard = ({ openKeyModal, aiLoading, setAiLoading }) => {
 翻越路段：${route.passes.length ? route.passes.join("、") : "無山區"}
 使用道路：${route.roads.join("、")}
 氣象廳區域：${(route.jmaAreas || []).map((a) => a.name).join("、") || route.jmaArea}
-自駕車：NIPPON 租車 VOXY 級（2WD、雪胎）
+自駕車：ORIX 租車 WA 級廂型車（2WD、雪胎）
 
 請用 Google Search 查詢並提供：
 1. 該區域 ${route.date} 前後 3 日的降雪預報（氣象廳、tenki.jp）
@@ -5061,7 +5062,7 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest,
 }) => {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -5075,6 +5076,33 @@ const MetroTab = ({
   });
   const [simOpen, setSimOpen] = useState(false);
   useEffect(() => { if (simRequest) setSimOpen(true); }, [simRequest]);
+  // 更多 › AI 查核今天所有站：逐站查、每站間隔 1.2 秒、失敗跳過
+  const [intelProg, setIntelProg] = useState(null);
+  useEffect(() => {
+    if (!intelAllRequest) return;
+    if (!localStorage.getItem("gemini_api_key")) { openKeyModal && openKeyModal(true); return; }
+    const di = sim ? sim.dayIdx : st.phase === "trip" ? st.dayIdx : 0;
+    const day = tripData[di];
+    let cancelled = false;
+    (async () => {
+      const all = loadIntel();
+      let ok = 0;
+      for (let i = 0; i < day.spots.length; i++) {
+        if (cancelled) break;
+        const sp = day.spots[i];
+        setIntelProg({ i: i + 1, n: day.spots.length, name: metroShort(sp.name) });
+        try {
+          const dep = minutesToTimeStr(timeToMinutes(sp.time) + parseStayDuration(sp.stay));
+          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 800 });
+          const o = parseIntel(text); o.at = Date.now(); all[sp.id] = o; saveIntel(all); ok++;
+        } catch (e) { if (/QUOTA/.test(e.message)) break; }
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+      setIntelProg(null);
+      showToast(`AI 查核完成：${ok}／${day.spots.length} 站（${day.title}）`);
+    })();
+    return () => { cancelled = true; };
+  }, [intelAllRequest]);
   const [gps, setGps] = useState(null);
   const [gpsOn, setGpsOn] = useState(() => localStorage.getItem("metro_gps") === "1");
   const now = useMetroClock(sim);
@@ -5181,7 +5209,12 @@ const MetroTab = ({
       {view.level === "station" && (
         <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
           depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
-          showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} />
+          showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} openKeyModal={openKeyModal} />
+      )}
+      {intelProg && (
+        <div style={{ position: "fixed", left: 16, right: 16, top: "calc(12px + env(safe-area-inset-top))", zIndex: 90, background: "#1767B3", color: "#fff", borderRadius: 14, padding: "10px 14px", fontSize: 13, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,.3)" }}>
+          ✨ AI 查核中 {intelProg.i}／{intelProg.n}：{intelProg.name}
+        </div>
       )}
       {toast && (
         <div role="status" style={{ position: "fixed", left: 16, right: 16, bottom: "calc(100px + env(safe-area-inset-bottom))", zIndex: 90, background: "#1C1B19", color: "#fff", borderRadius: 14, padding: "10px 12px 10px 16px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 6px 20px rgba(0,0,0,.3)", fontSize: 13, fontWeight: 700 }}>
@@ -5228,6 +5261,100 @@ const SimSheet = ({ sim, setSim, close, tripData }) => {
 };
 
 // ---- ① 首頁：環狀路線圖 ----
+// ✨ 站點情報：Gemini + Google Search 查核營業／公休／停車／現場攻略（結果存手機）
+const INTEL_KEY = "metro_intel";
+const loadIntel = () => { try { return JSON.parse(localStorage.getItem(INTEL_KEY) || "{}"); } catch (e) { return {}; } };
+const saveIntel = (obj) => { try { localStorage.setItem(INTEL_KEY, JSON.stringify(obj)); } catch (e) {} };
+const spotKind = (s) => {
+  if (isHotel(s.name)) return "hotel";
+  if (/砂丘|沙丘|滑雪|城|馬場|海岸|公園|展望/.test(s.name) && !/美術館|博物館/.test(s.name)) return "outdoor";
+  if (isFreeSpot(s.name) || MINOR_RE.test(s.name)) return "shop";
+  return "museum";
+};
+const KIND_CHECKS = {
+  shop: "這是商店／商場／二手店／交通節點。請查：1) 該日是否營業、開店與打烊時間，抵達時間是否已開店；2) 是否有免稅（Tax-Free）櫃台與免稅門檻；3) 停車場是否免費或需消費折抵、入口在哪；4) 這類店冬季常見的尋寶重點（例如二手雪具、滑雪盆、玩具區）。",
+  museum: "這是博物館／科學館／展館。請查：1) 該日（含星期幾）是否公休、1 月底冬季開館時間與最後入場時間，是否與抵達／離開時段衝突；2) 停留時段內有沒有定時導覽、實驗秀、機關演示的場次；3) 小學生適合的互動展區或體驗活動；4) 停車場位置與費用。",
+  outdoor: "這是戶外景點／古蹟／雪場。請查：1) 1 月底積雪、暴風雪、強風導致封閉或纜車停駛的風險與官方公告；2) 冬季開放時間與最後入場（如城郭 16:00 閉門）；3) 需脫鞋、地面結冰、裝備（防滑、厚襪、暖暖包）等實戰注意；4) 停車場與冬季路況。",
+  hotel: "這是住宿。請查：1) 入住與退房時間、停車場費用與是否需預約；2) 晚餐／早餐時段與最後入場；3) 溫泉或設施的使用時間、小學生可否使用；4) 附近 1 公里內的超市或便利商店（買隔天早餐）。",
+};
+const buildIntelPrompt = (s, day, arr, dep, mode) => {
+  const fam = window.TRAVELERS || "2 大 2 小（兩個小學男生）";
+  const date = "2027 年 " + day.date.replace(/\s*\(/, "（").replace(/\)/, "）");
+  return `你是日本山陰山陽冬季自駕旅遊的「副駕情報官」。請用 Google 搜尋該地點的日文官方資訊，給出極簡、高價值的實戰提醒。
+
+地點：${s.name}
+座標：${s.lat},${s.lon}
+日期：${date}
+預計抵達 ${arr}、離開 ${dep}（停留 ${s.stay}）
+移動方式：${mode === "walk" ? "步行" : "開車自駕（租車、雪胎）"}
+成員：${fam}
+
+${KIND_CHECKS[spotKind(s)]}
+
+規則：
+- 嚴禁輸出「注意保暖、穿好走的鞋、祝旅途愉快」等常識廢話。
+- 2027 年 1 月的臨時公告若尚未公布，請依「固定星期公休」與「歷年 1 月底冬季慣例」給預警，並在句尾加「（依歷年慣例）」。
+- 查不到就寫「未查到」，不要編造。
+- 只輸出以下 JSON，不要加任何說明或 markdown 標記：
+{"status":"營業檢核：該日是否營業、時間、與抵達時段是否衝突（30 字內）","status_level":"ok 或 warn 或 closed","must_know":"現場攻略一句（40 字內）","parking":"停車／交通一句（30 字內）","extra":"其他重要提醒，沒有就空字串（40 字內）"}`;
+};
+const parseIntel = (text) => {
+  try {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) { const o = JSON.parse(m[0]); if (o && (o.status || o.must_know)) return o; }
+  } catch (e) {}
+  return { raw: text };
+};
+const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
+  const [intel, setIntel] = useState(() => loadIntel()[s.id] || null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setIntel(loadIntel()[s.id] || null); }, [s.id]);
+  const run = async () => {
+    if (!localStorage.getItem("gemini_api_key")) { openKeyModal && openKeyModal(true); return; }
+    if (!navigator.onLine) { showToast && showToast("沒有網路，無法查核"); return; }
+    haptic();
+    setBusy(true);
+    try {
+      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 800 });
+      const o = parseIntel(text);
+      o.at = Date.now();
+      const all = loadIntel(); all[s.id] = o; saveIntel(all);
+      setIntel(o);
+    } catch (e) {
+      if (/NO_API_KEY|BAD_API_KEY/.test(e.message)) openKeyModal && openKeyModal(true);
+      else showToast && showToast(e.message.startsWith("QUOTA") ? "Gemini 配額用完，請稍後再試" : "查核失敗：" + e.message);
+    }
+    setBusy(false);
+  };
+  const lvl = intel && (intel.status_level || "ok");
+  const statusColor = lvl === "closed" ? ["#FFD2CC", "#8A1C12", "🔴"] : lvl === "warn" ? ["#FFE08A", "#5A4300", "🟡"] : ["#CDEBD8", "#0B5E36", "🟢"];
+  const Row = ({ bg, fg, icon, label, text }) => text ? (
+    <div style={{ display: "flex", gap: 8, background: bg, borderRadius: 12, padding: "8px 10px" }}>
+      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 13, lineHeight: "19px", color: fg }}><b>{label}：</b>{text}</span>
+    </div>
+  ) : null;
+  const when = intel && intel.at ? new Date(intel.at) : null;
+  return (
+    <SectionCard color="#1767B3" title="AI 查核" right={when ? `查核於 ${when.getMonth() + 1}/${when.getDate()}` : "營業・公休・停車"}>
+      {intel && !intel.raw && (
+        <>
+          <Row bg={statusColor[0]} fg={statusColor[1]} icon={statusColor[2]} label="營業檢核" text={intel.status} />
+          <Row bg="#FFF6E3" fg="#5A4300" icon="💡" label="現場攻略" text={intel.must_know} />
+          <Row bg="#EAF2FB" fg="#0F3F70" icon="🅿️" label="停車交通" text={intel.parking} />
+          <Row bg="#F4EFFA" fg="#5B3A8A" icon="📌" label="其他" text={intel.extra} />
+        </>
+      )}
+      {intel && intel.raw && <div style={{ fontSize: 13, whiteSpace: "pre-wrap", lineHeight: "20px" }}>{intel.raw}</div>}
+      {!intel && <div style={{ fontSize: 12, color: METRO.sub }}>用 Gemini 聯網查這站當天是否營業、公休、冬季時間、停車與現場攻略。現在查抓固定規則，出發前一週再按一次更新臨時公告。</div>}
+      <PillBtn dark={!intel} onClick={run} style={{ opacity: busy ? 0.6 : 1 }}>
+        {busy ? "查核中…（約 10–20 秒）" : intel ? "🔄 重新查核 2027/1 營業與避雷" : "✨ AI 查核 2027/1 營業與避雷"}
+      </PillBtn>
+      {intel && <div style={{ fontSize: 11, color: METRO.sub }}>AI 聯網查核仍可能有誤，出發前請以官網為準。</div>}
+    </SectionCard>
+  );
+};
+
 // 🩹 順路補給：以「目前位置」在 Google 地圖搜尋（地圖自己定位，不需要本 App 的 GPS 權限）
 const SOS_ITEMS = [
   ["💊", "藥局", "ドラッグストア"],
@@ -5261,7 +5388,7 @@ const SosSheet = ({ close }) => (
         </a>
       ))}
     </div>
-    <div style={{ fontSize: 11, color: METRO.sub }}>日本緊急電話：警察 110・救護車／消防 119。租車故障請打 NIPPON 車上貼的 24 小時專線。</div>
+    <div style={{ fontSize: 11, color: METRO.sub }}>日本緊急電話：警察 110・救護車／消防 119。租車故障請打 ORIX 078-261-0543（免付費 0120-29-1543）。</div>
   </Sheet>
 );
 const CHECKOUT_ITEMS = ["護照・錢包", "車鑰匙・ETC 卡", "充電線・行動電源", "小孩外套・手套", "冰箱裡的食物", "浴室・榻榻米上的東西", "停車場付費／取車"];
@@ -5508,7 +5635,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
                   <span style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, lineHeight: "34px", color: rm.left < 60 ? "#E2342F" : METRO.ink }}>{rm.left >= 0 ? `${Math.floor(rm.left / 60)}:${String(rm.left % 60).padStart(2, "0")}` : "已過"}</span>
                   {rm.left >= 0 && <span style={{ fontSize: 12, fontWeight: 900 }}>小時</span>}
                 </span>
-                <span style={{ fontSize: 11, color: "#3D3830" }}>{fuelDone ? "⛽ 已加滿油" : "⛽ 上橋前先加滿油"}・第 {st.spotIdx + 1}/{spots.length} 站</span>
+                <span style={{ fontSize: 11, color: "#3D3830" }}>{fuelDone ? "⛽ 已加滿油" : "⛽ 還車前在三宮加滿油"}・第 {st.spotIdx + 1}/{spots.length} 站</span>
               </>
             ) : (
               <>
@@ -5643,6 +5770,17 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
           {isToday && delay !== 0 && <span style={hdrChip(delay > 0 ? "#FFD2CC" : "#CDEBD8", delay > 0 ? "#8A1C12" : "#0B5E36")}>{delay > 0 ? `進度晚 ${delay} 分・後面已順延` : `進度早 ${-delay} 分`}</span>}
         </div>
         {isToday && (() => {
+          const ret = spots.findIndex((x) => /還車/.test(x.name));
+          if (ret >= 0 && ret > cur) {
+            const eta = metroTimeline(spots)[ret].a;
+            const deadline = timeToMinutes((window.CAR_RENTAL_INFO && window.CAR_RENTAL_INFO.returnTime) || "16:30");
+            if (eta > deadline) return (
+              <div style={{ background: "#FFD2CC", color: "#8A1C12", borderRadius: 12, padding: "8px 10px", fontSize: 12, fontWeight: 900 }}>
+                ⚠️ 照目前進度 {minutesToTimeStr(eta)} 才到還車點，已超過 {minutesToTimeStr(deadline)}。請跳過一站或縮短停留，不然趕不上飛機。
+              </div>
+            );
+            return null;
+          }
           const h = hotelIndex(spots);
           if (h < 0 || h <= cur) return null;
           const eta = metroTimeline(spots)[h].a;
@@ -5778,7 +5916,7 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 // ---- ③ 站點提醒 ----
 const StationPage = ({
   tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
-  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit,
+  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit, openKeyModal,
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
   const [ticketOpen, setTicketOpen] = useState(false);
@@ -5898,6 +6036,7 @@ const StationPage = ({
         <SectionCard color="#13804A" title="觀光提醒">
           <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。"}</div>
         </SectionCard>
+        <IntelCard s={s} day={day} arr={s.time} dep={minutesToTimeStr(depMin)} mode={(edit && edit.transportModes[s.id]) || "car"} openKeyModal={openKeyModal} showToast={showToast} />
 
         <SectionCard color="#E89B00" title="購物提醒" right={matches.length ? "這站可能買得到" : `清單還有 ${unbought.length} 項`}>
           {(matches.length ? [...matches].sort((a, b) => a.bought - b.bought) : unbought.slice(0, 4)).map((it) => (
@@ -6463,7 +6602,7 @@ function App() {
         const spotId = spot.sid || `${day.dayId}-s${idx}`;
         // 停車場類景點預設停留 0 分鐘（僅停車/取車，不佔行程時間）
         const isParkingSpot = /停車場|駐車場|[Pp]arking/.test(spot.name);
-        const stayStr = stays[spotId] || (isParkingSpot ? "0 min" : "40 min"); // 預設每站 40 分
+        const stayStr = stays[spotId] || spot.defaultStay || (isParkingSpot ? "0 min" : "40 min"); // 預設每站 40 分，config 可用 defaultStay 覆寫
         const stayMinutes = parseStayDuration(stayStr);
         const arrivalTimeStr = minutesToTimeStr(currentMinutes);
         let departureMinutes;
@@ -6487,7 +6626,8 @@ function App() {
             nextSpot.lat,
             nextSpot.lon
           );
-          const mode = transportModes[spotId] || "car";
+          // 「步行到 …」的站預設用步行（不加停車緩衝）
+          const mode = transportModes[spotId] || (/^步行到/.test(nextSpot.name) ? "walk" : "car");
           // v5：優先用預計算真實車程（calculator v5 / Routes API 交通感知），無資料才退回直線估算
           const dtKey = `${spot.name}→${nextSpot.name}`;
           const dt = window.DRIVE_TIMES ? window.DRIVE_TIMES[dtKey] : null;
@@ -7261,6 +7401,7 @@ ${JSON.stringify(hotelWithDates)}
 
   const [showMore, setShowMore] = useState(false);
   const [metroSimRequest, setMetroSimRequest] = useState(0);
+  const [intelAllRequest, setIntelAllRequest] = useState(0);
   const launchGeminiPriceCheck = () => launchGemini(window.GEMINI_PRICE_PROMPT || GEMINI_PRICE_PROMPT_DEFAULT);
   const shoppingBody = (
     <>
@@ -7397,6 +7538,8 @@ ${JSON.stringify(hotelWithDates)}
           openChainFinder={openChainFinder}
           scanSpotNearby={scanSpotNearby}
           openSettings={() => setShowMore(true)}
+          openKeyModal={setIsKeyModalOpen}
+          intelAllRequest={intelAllRequest}
           simRequest={metroSimRequest}
           launchGemini={launchGeminiPriceCheck}
           openDetail={null}
@@ -7618,6 +7761,10 @@ ${JSON.stringify(hotelWithDates)}
             <button onClick={() => { setShowMore(false); handleOpenMap(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
               <span className="text-2xl w-9 text-center">🗺️</span>
               <span className="flex-1"><span className="block font-black text-gray-800">全程地圖預覽</span><span className="block text-xs text-gray-400">在地圖上看所有站點</span></span>
+            </button>
+            <button onClick={() => { setShowMore(false); setActiveTab("metro"); setIntelAllRequest(Date.now()); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">✨</span>
+              <span className="flex-1"><span className="block font-black text-gray-800">AI 查核今天所有站</span><span className="block text-xs text-gray-400">逐站查營業／公休／停車（出發前與行前一週各跑一次）</span></span>
             </button>
             <button onClick={() => { setShowMore(false); handleEstimateTickets(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
               <span className="text-2xl w-9 text-center">🎫</span>

@@ -184,15 +184,21 @@ window.FLIGHT_INFO = {
 // 6. 住宿資訊（日文資料供租車櫃台填「日本國內聯絡處」）
 window.HOTEL_INFO = [
   { day: "1/25", name: "多美迎神戶元町 天然溫泉浪漫湯", location: "神戶元町", desc: "有天然溫泉，適合冬天泡湯", lat: 34.6875451, lon: 135.1879119, mapCode: "",
-    jpName: "天然温泉 浪漫湯 ドーミーイン神戸元町", zip: "", jpAddress: "兵庫県神戸市中央区栄町通2-5-1", tel: "078-393-5489" },
+    jpName: "天然温泉 浪漫湯 ドーミーイン神戸元町", zip: "", jpAddress: "兵庫県神戸市中央区栄町通2-5-1", tel: "078-393-5489",
+    booking: { via: "Booking.com", room: "豪華雙床房・含早餐", guests: "2 大 2 小（9、11 歲）", checkIn: "15:00", checkOut: "11:00", price: 34800, pay: "到店付款（含其他稅費 ¥450）", cancelBy: "1/23 23:59 前免費取消" } },
   { day: "1/26", name: "Green Rich Hotel Tottori Ekimae", location: "鳥取站前", desc: "四人含早餐約 NT$5,300-5,800", lat: 35.4953415, lon: 134.2282919, mapCode: "",
-    jpName: "グリーンリッチホテル鳥取駅前（人工温泉 二股湯の華）", zip: "", jpAddress: "鳥取県鳥取市永楽温泉町102番6", tel: "0857-25-0022" },
+    jpName: "グリーンリッチホテル鳥取駅前（人工温泉 二股湯の華）", zip: "", jpAddress: "鳥取県鳥取市永楽温泉町102番6", tel: "0857-25-0022",
+    booking: { via: "Booking.com", room: "雙床房 B（2 張小型雙人床）禁菸", guests: "2 大 2 小（9、11 歲）", checkIn: "15:00", checkOut: "11:00", price: 22893, pay: "Booking.com 自動刷卡", cancelBy: "1/24 23:59 前免費取消" } },
   { day: "1/27", name: "萬翠樓 (ManSuiRou) 三朝溫泉", location: "三朝溫泉", desc: "溫泉旅館，約 NT$5,100-5,500/晚含早餐", lat: 35.4116107, lon: 133.893098, mapCode: "",
-    jpName: "三朝薬師の湯 万翆楼", zip: "", jpAddress: "鳥取県東伯郡三朝町山田5", tel: "0858-43-0511" },
+    jpName: "三朝薬師の湯 万翆楼", zip: "", jpAddress: "鳥取県東伯郡三朝町山田5", tel: "0858-43-0511",
+    booking: { via: "樂天旅遊（訂單 21315090322228）", room: "日式客房 禁菸・含早餐（隔夜早餐方案，不含晚餐）", guests: "2 大 2 小（9、11 歲）", checkIn: "19:30–20:00（已申告）", checkOut: "10:00", price: 37400, pay: "已刷卡 NT$7,531（折扣後）・泡湯稅 ¥150/人現場付", cancelBy: "取消條件見樂天訂單頁" },
+    note: "申告的抵達時間是 19:30–20:00。進度若提早或延後，先打 0858-43-0511 更新。不含晚餐，晚餐在倉吉新鮮館採買。" },
   { day: "1/28", name: "Kurashiki Royal Art Hotel", location: "倉敷美觀", desc: "四人含早餐約 NT$4,000-5,000", lat: 34.596761, lon: 133.7680556, mapCode: "",
-    jpName: "倉敷ロイヤルアートホテル", zip: "〒710-0055", jpAddress: "岡山県倉敷市阿知3-21-19", tel: "086-423-2400" },
+    jpName: "倉敷ロイヤルアートホテル", zip: "〒710-0055", jpAddress: "岡山県倉敷市阿知3-21-19", tel: "086-423-2400",
+    booking: { via: "Booking.com", room: "高級雙床房 禁菸", guests: "2 大 2 小（9、11 歲）", checkIn: "15:00", checkOut: "11:00", price: 29640, pay: "到店付款（含服務費 ¥2,695；可能先預刷保證金）", cancelBy: "1/26 23:59 前免費取消" } },
   { day: "1/29", name: "里士滿酒店姬路 (Richmond Hotel Himeji)", location: "JR 姬路站", desc: "親子友善，預算省", lat: 34.8241842, lon: 134.6875, mapCode: "",
-    jpName: "リッチモンドホテル姫路", zip: "", jpAddress: "兵庫県姫路市南畝町2丁目7番地", tel: "079-225-6255" },
+    jpName: "リッチモンドホテル姫路", zip: "", jpAddress: "兵庫県姫路市南畝町2丁目7番地", tel: "079-225-6255",
+    booking: { via: "Booking.com", room: "雙床房 附加床 禁菸", guests: "2 大 2 小（9、11 歲）", checkIn: "14:00", checkOut: "11:00", price: 20040, pay: "Booking.com 自動刷卡", cancelBy: "1/29 18:00 前免費取消" } },
 ];
 
 // 6-1. 出發前／臨櫃核對清單（冬季版）
@@ -482,4 +488,4 @@ window.GEMINI_PRICE_PROMPT = `你是我的日本旅遊尋寶與比價助手。�
 請用極簡條列回答，讓我在店內 3 秒看完做決定。`;
 
 // 13. ✨ AI 查核用的成員描述（站點頁「AI 查核」會把這段餵給 Gemini）
-window.TRAVELERS = "2 大 2 小（兩個小學男生，約 9–10 歲）";
+window.TRAVELERS = "2 大 2 小（兩個小學男生，9 歲與 11 歲）";

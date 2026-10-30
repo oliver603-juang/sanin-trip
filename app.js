@@ -2239,6 +2239,13 @@ const HotelDeskCard = () => {
                   {h.tel}
                 </a>
               </div>
+              {h.booking ? (
+                <div className="mt-2 p-2 rounded-lg bg-green-50 border border-green-200 text-[11px] text-green-900 leading-relaxed">
+                  ✅ 已訂（{h.booking.via}）{h.booking.room}・{h.booking.guests}<br />入住 {h.booking.checkIn} 起・退房 {h.booking.checkOut} 前{h.booking.price ? <>・<b>¥{h.booking.price.toLocaleString()}</b></> : null}<br />{h.booking.pay}・{h.booking.cancelBy}
+                </div>
+              ) : (
+                <div className="mt-2 p-2 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-800 font-bold">❗ 尚未訂房</div>
+              )}
               {h.note && (
                 <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 font-bold leading-relaxed">
                   📌 {h.note}
@@ -5062,8 +5069,10 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest, twdJpyRate, setTwdJpyRate,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest, twdJpyRate, setTwdJpyRate, radarRequest, addCustomSpot, removeCustomSpot, addShoppingItem,
 }) => {
+  const [radarOpen, setRadarOpen] = useState(false);
+  useEffect(() => { if (radarRequest) setRadarOpen(true); }, [radarRequest]);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const showToast = (text, undo) => {
@@ -5209,7 +5218,7 @@ const MetroTab = ({
       {view.level === "station" && (
         <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
           depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
-          showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} openKeyModal={openKeyModal} />
+          showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} openKeyModal={openKeyModal} removeCustomSpot={removeCustomSpot} />
       )}
       {intelProg && (
         <div style={{ position: "fixed", left: 16, right: 16, top: "calc(12px + env(safe-area-inset-top))", zIndex: 90, background: "#1767B3", color: "#fff", borderRadius: 14, padding: "10px 14px", fontSize: 13, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,.3)" }}>
@@ -5224,6 +5233,7 @@ const MetroTab = ({
           )}
         </div>
       )}
+      {radarOpen && <EventRadar tripData={liveData} close={() => setRadarOpen(false)} openKeyModal={openKeyModal} showToast={showToast} addCustomSpot={addCustomSpot} addShoppingItem={addShoppingItem} st={st} sim={sim} go={go} />}
       {simOpen && <SimSheet sim={sim} setSim={setSim} close={() => setSimOpen(false)} tripData={tripData} />}
     </div>
   );
@@ -5427,6 +5437,115 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
   );
 };
 
+// 📡 期間限定活動雷達：走廊搜尋（當天全部站點座標＋飯店）→ 一鍵插站或存清單
+const EVENTS_KEY = "metro_events";
+const loadEvents = () => { try { return JSON.parse(localStorage.getItem(EVENTS_KEY) || "{}"); } catch (e) { return {}; } };
+const buildEventPrompt = (day, dayIdx, tripData) => {
+  const hotels = window.HOTEL_INFO || [];
+  const wr = (window.WINTER_ROUTES || []).find((w) => w.dayId === day.dayId);
+  const pts = day.spots.filter((s) => !MINOR_RE.test(s.name)).map((s) => `${metroShort(s.name)}(${s.lat.toFixed(3)},${s.lon.toFixed(3)})`);
+  const stayNames = [hotels[dayIdx - 1], hotels[dayIdx]].filter(Boolean).map((h) => h.location).join("、");
+  const weekend = /六|日/.test(day.date);
+  const fam = localStorage.getItem("travelers") || window.TRAVELERS || "2 大 2 小（小學男生）";
+  return `請用 Google 搜尋日本在地公開資訊（優先：いこーよ、Walkerplus、神戸ジャーナル、岡山観光WEB、とっとり旅、フリマガイド、こくちーずプロ、各博物館與百貨官網、駿河屋／BOOKOFF 官方 X）。
+我們（${fam}，喜歡科學實驗、鐵道、樂高、動漫二手玩具、市集尋寶）將於 2027 年 ${day.date} 自駕走這條路線：
+路線：${wr ? wr.route : day.title}；住宿地：${stayNames || "無"}
+當天站點與座標：${pts.join("、")}
+
+請找出「2027 年 ${day.date} 當天正在舉辦」、且地點在上述任一站點 15 公里內或路線繞路 20 分鐘內的期間限定活動：
+${weekend ? "1) 蚤の市・フリーマーケット・骨董市・マルシェ・ハンドメイドイベント（週末重點）\n2) " : "1) "}博物館／科學館的企画展・特別展・ワークショップ
+${weekend ? "3)" : "2)"} 商場、車站大樓、百貨的ポップアップストア・催事・セール（動漫、卡牌、玩具、二手）
+${weekend ? "" : "3) 平日限定的工作坊或體驗\n"}
+規則：只列目前已公開、日期確認含當天的活動；查不到就回傳空陣列，嚴禁編造。每個活動給大約座標（lat,lon，查官網或地圖）。
+只輸出 JSON 陣列，不加 markdown：
+[{"title":"活動名（附日文原名）","venue":"場地名（供地圖定位）","lat":34.7,"lon":135.2,"date_time":"期間與時間","type":"特展／蚤之市／市集／快閃店／工作坊","highlight":"為什麼適合小學生或尋寶（30 字內）","source":"來源網站或官網關鍵字"}]`;
+};
+const parseEvents = (text) => {
+  const t = (text || "").replace(/```json|```/g, "").trim();
+  try { const m = t.match(/\[[\s\S]*\]/); if (m) { const a = JSON.parse(m[0]); if (Array.isArray(a)) return a.filter((x) => x && x.title); } } catch (e) {}
+  return [];
+};
+const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, addShoppingItem, st, sim, go }) => {
+  const [di, setDi] = useState(sim ? sim.dayIdx : st.phase === "trip" ? st.dayIdx : 0);
+  const [all, setAll] = useState(() => loadEvents());
+  const [busy, setBusy] = useState(false);
+  const day = tripData[di];
+  const res = all[day.dayId];
+  const run = async () => {
+    if (!localStorage.getItem("gemini_api_key")) { openKeyModal(true); return; }
+    if (!navigator.onLine) { showToast("沒有網路"); return; }
+    haptic(); setBusy(true);
+    try {
+      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000 });
+      const list = parseEvents(text);
+      const next = { ...all, [day.dayId]: { list, at: Date.now(), raw: list.length ? null : text.slice(0, 200) } };
+      setAll(next); try { localStorage.setItem(EVENTS_KEY, JSON.stringify(next)); } catch (e) {}
+    } catch (e) {
+      if (/NO_API_KEY|BAD_API_KEY/.test(e.message)) openKeyModal(true);
+      else showToast(e.message.startsWith("QUOTA") ? "Gemini 配額用完，請稍後再試" : "掃描失敗：" + e.message);
+    }
+    setBusy(false);
+  };
+  const nearestSid = (ev) => {
+    if (!(ev.lat && ev.lon)) return null;
+    let best = null, bd = 1e9;
+    day.spots.forEach((sp) => { if (MINOR_RE.test(sp.name) || isHotel(sp.name)) return; const d = parseFloat(getDistanceFromLatLonInKm(ev.lat, ev.lon, sp.lat, sp.lon)); if (d < bd) { bd = d; best = sp; } });
+    return best ? { sid: best.sid || best.id, name: best.name, km: bd } : null;
+  };
+  const insert = (ev) => {
+    const near = nearestSid(ev);
+    const sid = "c" + Date.now();
+    addCustomSpot(day.dayId, {
+      sid, name: "⭐ " + (ev.venue || ev.title), lat: ev.lat || (near ? day.spots.find((x) => (x.sid || x.id) === near.sid).lat : day.spots[0].lat), lon: ev.lon || (near ? day.spots.find((x) => (x.sid || x.id) === near.sid).lon : day.spots[0].lon),
+      desc: `${ev.title}｜${ev.date_time || ""}｜${ev.highlight || ""}｜來源：${ev.source || ""}`, defaultStay: "1 hr", afterSid: near ? near.sid : null, mapCode: "", ticket: { adult: 0, child: 0 }, custom: true, event: ev,
+    });
+    haptic(20);
+    showToast(`已插進 Day ${di + 1}${near ? "・" + metroShort(near.name) + " 之後" : ""}`);
+  };
+  const toList = (ev) => {
+    addShoppingItem(ev.title, "event", [ev.venue, ev.title].filter(Boolean).join(","), "📡", `${ev.date_time || ""} ${ev.highlight || ""}`.trim());
+    haptic(20); showToast("已加進清單，到該站會提醒");
+  };
+  const card = { background: "#fff", borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${METRO.line}` };
+  return (
+    <Sheet title="📡 期間限定活動雷達" close={close}>
+      <div style={{ fontSize: 12, color: METRO.sub, marginTop: -6 }}>用當天全部站點的座標當走廊，找 15 公里內或繞路 20 分內的特展、蚤之市、市集、快閃店。日本活動多在 1 月初才公布，建議 1/5 後再掃。</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
+        {tripData.map((d, i) => (
+          <button key={i} onClick={() => { haptic(); setDi(i); }}
+            style={{ minHeight: 48, borderRadius: 12, border: di === i ? `3px solid ${METRO.colors[i]}` : `2px solid ${METRO.line}`, background: di === i ? METRO.tints[i] : "#fff", fontFamily: "inherit", fontWeight: 900, fontSize: 12, color: METRO.ink, padding: 0 }}>
+            {d.date.replace(/\s*\(.*\)/, "")}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 900 }}>{day.date}・{day.title}{res ? <span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>・掃描於 {new Date(res.at).getMonth() + 1}/{new Date(res.at).getDate()}</span> : null}</div>
+      <PillBtn dark onClick={run} style={{ opacity: busy ? 0.6 : 1 }}>{busy ? "掃描中…（約 20–40 秒）" : res ? "🔄 重新掃描這一天" : "📡 掃描這一天的活動"}</PillBtn>
+      {res && res.list.length === 0 && <div style={{ fontSize: 13, color: METRO.sub }}>這天沒找到已公開的活動{res.raw ? "：" + res.raw : ""}</div>}
+      {res && res.list.map((ev, i) => {
+        const near = nearestSid(ev);
+        return (
+          <div key={i} style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ height: 20, padding: "0 7px", borderRadius: 10, background: METRO.tints[di], fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center" }}>{ev.type || "活動"}</span>
+              <span style={{ fontSize: 14, fontWeight: 900, flex: 1 }}>{ev.title}</span>
+            </div>
+            <div style={{ fontSize: 12 }}>📍 {ev.venue}{near ? <span style={{ color: METRO.sub }}>・離 {metroShort(near.name)} {near.km.toFixed(1)} km</span> : null}</div>
+            <div style={{ fontSize: 12, color: METRO.sub }}>🕘 {ev.date_time}</div>
+            {ev.highlight && <div style={{ fontSize: 12, color: "#5A4300", background: "#FFF6E3", borderRadius: 8, padding: "6px 8px" }}>💡 {ev.highlight}</div>}
+            {ev.source && <div style={{ fontSize: 11, color: METRO.sub }}>來源：{ev.source}</div>}
+            <div style={{ display: "flex", gap: 6 }}>
+              <PillBtn dark onClick={() => insert(ev)} style={{ minHeight: 44, fontSize: 12 }}>➕ 插進 Day {di + 1}</PillBtn>
+              <PillBtn onClick={() => toList(ev)} style={{ minHeight: 44, fontSize: 12 }}>🛍️ 存入清單</PillBtn>
+              <a href={mapsSearchHere(ev.venue || ev.title)} target="_blank" rel="noreferrer" onClick={() => haptic()} style={{ minHeight: 44, padding: "0 12px", borderRadius: 12, border: `2px solid ${METRO.line}`, display: "flex", alignItems: "center", fontSize: 12, fontWeight: 900, color: METRO.ink, textDecoration: "none" }}>地圖</a>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ fontSize: 11, color: METRO.sub }}>插進去的站在環狀圖和直線圖以 ⭐ 顯示，預設停留 1 小時，可在站點頁改或移除。AI 結果請以官網為準。</div>
+    </Sheet>
+  );
+};
+
 // ⚙️ 設定：金鑰、匯率、旅伴、資料備份（不常動的底層設定）
 const BACKUP_KEYS = ["stays", "departures", "modes", "expenses", "trip_spot_tickets", "ticket_overrides", "shopping_list", "start_times", "checklist_state", "metro_intel", "metro_stores", "metro_arrivals", "metro_checkout", "metro_fuel", "twd_jpy_rate", "travelers"];
 const SettingsSheet = ({ close, openKeyModal, twdJpyRate, setTwdJpyRate, showToast }) => {
@@ -5551,6 +5670,14 @@ const HotelSheet = ({ dayIdx, close, tripData }) => {
       </div>
       <div style={{ fontSize: 16, fontWeight: 900 }}>{h.name}</div>
       <div style={{ fontSize: 12, color: METRO.sub, userSelect: "all" }}>{h.jpName}<br />{h.jpAddress}</div>
+      {h.booking ? (
+        <div style={{ fontSize: 12, lineHeight: "19px", background: "#fff", borderRadius: 10, padding: "6px 10px" }}>
+          ✅ 已訂（{h.booking.via}）・{h.booking.room}<br />入住 {h.booking.checkIn} 起・退房 {h.booking.checkOut} 前{h.booking.price ? "・¥" + h.booking.price.toLocaleString() : ""}<br />{h.booking.pay}・{h.booking.cancelBy}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, fontWeight: 900, color: "#8A1C12", background: "#FFD2CC", borderRadius: 10, padding: "6px 10px" }}>❗ 尚未訂房</div>
+      )}
+      {h.note && <div style={{ fontSize: 12, color: "#5A4300", background: "#FFF6E3", borderRadius: 10, padding: "6px 10px" }}>{h.note}</div>}
       <div style={{ display: "flex", gap: 6 }}>
         {h.tel && <PillBtn dark href={"tel:" + h.tel.replace(/-/g, "")}>📞 {h.tel}</PillBtn>}
         <PillBtn href={mapsDir(h.lat, h.lon)}>導航過去</PillBtn>
@@ -5714,6 +5841,8 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
                     <path d="M-6 3 L6 -1 L-6 -5 L-3.5 -1 Z" fill="#fff" transform="translate(0 1)" />
                   </g>
                 );
+              if (f.s.custom)
+                return <text key={g} x={p.x} y={p.y + 5} textAnchor="middle" fontSize="14" style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 3 }}>⭐</text>;
               return minor ? (
                 <circle key={g} cx={p.x} cy={p.y} r="1.8" fill="#fff" />
               ) : (
@@ -5801,7 +5930,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
       {!isPre && !isDone && (
         <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
           <button onClick={() => { haptic(); setSheet("hotel"); }} style={{ flex: 1, minHeight: 40, borderRadius: 20, border: `2px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 12, fontWeight: 900, color: METRO.ink, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 10px", overflow: "hidden" }}>
-            <span>🏨</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(window.HOTEL_INFO || [])[st.dayIdx] ? `今晚 ${(window.HOTEL_INFO || [])[st.dayIdx].location}` : "昨晚飯店・退房檢查"}</span>
+            <span>🏨</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(window.HOTEL_INFO || [])[st.dayIdx] ? `今晚 ${(window.HOTEL_INFO || [])[st.dayIdx].location}${(window.HOTEL_INFO || [])[st.dayIdx].booking ? "" : "・❗未訂房"}` : "昨晚飯店・退房檢查"}</span>
           </button>
           {rm && (
             <>
@@ -5974,6 +6103,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
               lineTop={i === 0 && !prevHotel ? null : lineC} lineBottom={lineAfter}
               dot={here ? <span style={{ width: 26, height: 26, boxSizing: "border-box", borderRadius: 13, background: "#fff", border: `7px solid ${METRO.here}` }} />
                 : hotel ? <span style={capsule(METRO.ink)} />
+                : s.custom ? <span style={{ fontSize: 16, lineHeight: "18px" }}>⭐</span>
                 : minor ? <span style={{ width: 8, height: 8, borderRadius: 4, background: done ? tint : "#fff", border: done ? 0 : `2px solid ${color}` }} />
                 : <span style={{ width: 18, height: 18, boxSizing: "border-box", borderRadius: 9, background: done ? tint : "#fff", border: done ? 0 : `4px solid ${color}` }} />}
               onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}>
@@ -6066,7 +6196,7 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 // ---- ③ 站點提醒 ----
 const StationPage = ({
   tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
-  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit, openKeyModal,
+  openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit, openKeyModal, removeCustomSpot,
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
   const [ticketOpen, setTicketOpen] = useState(false);
@@ -6184,6 +6314,12 @@ const StationPage = ({
             </SectionCard>
           );
         })()}
+        {s.custom && (
+          <div style={{ background: "#FFF6E3", border: "2px solid #E89B00", borderRadius: 14, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "#5A4300", flex: 1 }}>⭐ 這是你臨時加的站（活動雷達／手動）</span>
+            <PillBtn onClick={() => { if (window.confirm("移除這一站？")) { removeCustomSpot(day.dayId, s.sid); go({ level: "day", day: dayIdx }, "replaceParent"); } }} style={{ flex: 0, minHeight: 40, fontSize: 12, borderColor: "#E2342F", color: "#E2342F" }}>移除</PillBtn>
+          </div>
+        )}
         <SectionCard color="#13804A" title="觀光提醒">
           <div style={{ fontSize: 13, lineHeight: "21px", whiteSpace: "pre-wrap" }}>{s.desc ? s.desc.replace(/\s*｜\s*/g, "\n") : "這站沒有備註。"}</div>
         </SectionCard>
@@ -6743,8 +6879,25 @@ function App() {
   }, [selectedCurrency]);
 
   // --- 核心運算：行程瀑布流 ---
+  // ⭐ 旅途中臨時加的站（活動雷達／手動插站），存手機；依 afterSid 插在指定站之後
+  const [customSpots, setCustomSpots] = useState(() => { try { return JSON.parse(localStorage.getItem("metro_custom") || "{}"); } catch (e) { return {}; } });
+  useEffect(() => { try { localStorage.setItem("metro_custom", JSON.stringify(customSpots)); } catch (e) {} }, [customSpots]);
+  const addCustomSpot = (dayId, spot) => setCustomSpots((p) => ({ ...p, [dayId]: [...(p[dayId] || []), spot] }));
+  const removeCustomSpot = (dayId, sid) => setCustomSpots((p) => ({ ...p, [dayId]: (p[dayId] || []).filter((x) => x.sid !== sid) }));
+  const mergeCustom = (day) => {
+    const list = customSpots[day.dayId] || [];
+    if (!list.length) return day.spots;
+    const out = day.spots.slice();
+    list.forEach((c) => {
+      let i = out.findIndex((x) => x.sid === c.afterSid);
+      if (i < 0) { const h = out.findIndex((x) => isHotel(x.name)); i = h > 0 ? h - 1 : out.length - 1; }
+      out.splice(i + 1, 0, { ...c, custom: true });
+    });
+    return out;
+  };
   const tripData = useMemo(() => {
-    return window.RAW_KML_DATA.map((day, dayIdx) => {
+    return window.RAW_KML_DATA.map((rawDay, dayIdx) => {
+      const day = { ...rawDay, spots: mergeCustom(rawDay) };
       // 出發時間優先序：使用者手動設定 > config 的 day.defaultStart >
       // 第一天自動採用去程班機抵達時間（FLIGHT_INFO.outbound.arr，未來行程通用）> 09:00
       const resolvedStart =
@@ -6831,7 +6984,7 @@ function App() {
       });
       return { ...day, defaultStart: resolvedStart, spots: newSpots };
     });
-  }, [dayStartTimes, actualDepartures, simDeps, stays, transportModes]);
+  }, [dayStartTimes, actualDepartures, simDeps, stays, transportModes, customSpots]);
 
   // --- 統計數據計算 ---
   const dailyStats = useMemo(() => {
@@ -7556,6 +7709,7 @@ ${JSON.stringify(hotelWithDates)}
   const [showMore, setShowMore] = useState(false);
   const [metroSimRequest, setMetroSimRequest] = useState(0);
   const [intelAllRequest, setIntelAllRequest] = useState(0);
+  const [radarRequest, setRadarRequest] = useState(0);
   const launchGeminiPriceCheck = () => launchGemini(window.GEMINI_PRICE_PROMPT || GEMINI_PRICE_PROMPT_DEFAULT);
   const shoppingBody = (
     <>
@@ -7695,6 +7849,10 @@ ${JSON.stringify(hotelWithDates)}
           openKeyModal={setIsKeyModalOpen}
           twdJpyRate={twdJpyRate}
           setTwdJpyRate={setTwdJpyRate}
+          radarRequest={radarRequest}
+          addCustomSpot={addCustomSpot}
+          removeCustomSpot={removeCustomSpot}
+          addShoppingItem={addShoppingItem}
           intelAllRequest={intelAllRequest}
           simRequest={metroSimRequest}
           launchGemini={launchGeminiPriceCheck}
@@ -7917,6 +8075,10 @@ ${JSON.stringify(hotelWithDates)}
             <button onClick={() => { setShowMore(false); handleOpenMap(); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
               <span className="text-2xl w-9 text-center">🗺️</span>
               <span className="flex-1"><span className="block font-black text-gray-800">全程地圖預覽</span><span className="block text-xs text-gray-400">在地圖上看所有站點</span></span>
+            </button>
+            <button onClick={() => { setShowMore(false); setActiveTab("metro"); setRadarRequest(Date.now()); }} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-[#FFF6E3] text-left min-h-[56px]">
+              <span className="text-2xl w-9 text-center">📡</span>
+              <span className="flex-1"><span className="block font-black text-[#5A4300]">掃描期間限定活動</span><span className="block text-xs text-[#5A4300]/70">特展・蚤之市・市集・快閃店，一鍵插進行程（1/5 後再掃）</span></span>
             </button>
             <button onClick={() => { setShowMore(false); setActiveTab("metro"); setIntelAllRequest(Date.now()); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
               <span className="text-2xl w-9 text-center">✨</span>

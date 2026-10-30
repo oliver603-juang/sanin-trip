@@ -137,15 +137,15 @@
     <div id="root"></div>
 	<!-- 版本號：每次改 config.js / app.js 就把 v= 加 1（三處都要改成同一個數字），
 	     瀏覽器與 PWA 就會自動抓新檔，不必再手動清快取 -->
-	<script src="config.js?v=13"></script>
+	<script src="config.js?v=17"></script>
 
-    	<script type="text/babel" data-presets="env,react" src="app.js?v=13"></script>
+    	<script type="text/babel" data-presets="env,react" src="app.js?v=17"></script>
 
     <script>
 		  if ("serviceWorker" in navigator) {
 			window.addEventListener("load", () => {
 			  navigator.serviceWorker
-				.register("service-worker.js?v=13")
+				.register("service-worker.js?v=17")
 				.then((reg) => {
 				  console.log("PWA Service Worker registered!", reg);
 				  reg.update();

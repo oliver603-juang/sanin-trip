@@ -101,6 +101,8 @@ const isHotel = (name) => {
     "Villa",
     "Hostel",
     "溫暖的家",
+    // 山陰版：溫泉旅館與連鎖品牌
+    "旅館", "多美迎", "Dormy", "ドーミーイン", "萬翠樓", "ManSuiRou", "万翆楼", "里士滿", "Richmond", "Green Rich", "Royal Art", "ホテル",
   ];
   if (keywords.some((kw) => name.includes(kw))) return true;
   if (window.HOTEL_INFO && window.HOTEL_INFO.some((h) => name.includes(h.name)))
@@ -6290,7 +6292,7 @@ const StationPage = ({
                 </button>
               )}
               {showTicket && <div style={{ borderTop: `1px solid ${METRO.line}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 12, color: METRO.sub }}>{hotel ? "房價（每晚）與房數" : "門票（日圓）與人數"}{locked ? "・已確認免費" : freeKind ? "・手動輸入的入場費" : ""}</div>
+                <div style={{ fontSize: 12, color: METRO.sub }}>{hotel ? "房價（每晚）與房數" : "門票（日圓）與人數"}{locked ? (hotel ? "・已訂房價，不可改" : "・已確認免費") : freeKind ? "・手動輸入的入場費" : ""}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, width: 36 }}>{hotel ? "房價" : "成人"}</span>
                   <input type="number" inputMode="numeric" value={tk.adult || ""} placeholder="0" disabled={locked} onChange={(e) => setPrice("adult", e.target.value)} style={inputSt} />
@@ -6995,7 +6997,7 @@ function App() {
         spotExpenses.forEach((e) => (dayTotal += e.amount || 0));
         const currentTicket = getTicket(spot, ticketOverrides);
         if (currentTicket && (currentTicket.adult > 0 || currentTicket.child > 0)) {
-          const counts = spotTicketCounts[spot.id] || { adult: 2, child: 2 };
+          const counts = spotTicketCounts[spot.id] || (isHotel(spot.name) ? { adult: 1, child: 0 } : { adult: 2, child: 2 });
           if (isHotel(spot.name)) {
             dayTotal += currentTicket.adult * counts.adult; // 住宿：房價×房數
           } else {
@@ -7033,8 +7035,12 @@ function App() {
       }
       return newState;
     });
-  const getTicketCounts = (id) =>
-    spotTicketCounts[id] || { adult: 2, child: 2 };
+  // 飯店預設 1 間房；景點預設 2 大 2 小
+  const defaultCounts = (id) => {
+    const sp = (window.RAW_KML_DATA || []).flatMap((d) => d.spots).find((x) => x.sid === id);
+    return sp && isHotel(sp.name) ? { adult: 1, child: 0 } : { adult: 2, child: 2 };
+  };
+  const getTicketCounts = (id) => spotTicketCounts[id] || defaultCounts(id);
   const updateSpotTicketCount = (spotId, type, delta) => {
     setSpotTicketCounts((prev) => {
       const current = prev[spotId] || { adult: 2, child: 2 };

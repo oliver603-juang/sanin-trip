@@ -8113,7 +8113,29 @@ ${JSON.stringify(hotelWithDates)}
     // Google 地圖網址最多 9 個中繼站：全程只帶 5 間飯店當中繼；單日超過 9 站就等距抽樣
     let mids = points.slice(1, -1);
     if (selectedDay === "all") {
-      mids = (window.HOTEL_INFO || []).filter((h) => h.lat && h.lon).map((h) => `${h.lat},${h.lon}`);
+      // 先放 5 間飯店當錨點，剩下的名額給「繞路最遠」的景點（例如 Day2 的六甲山／和田山），
+      // 反覆挑選直到 9 個，這樣全程預覽才會沿著實際路線走，而不是飯店間的直線捷徑。
+      const allSpots = [];
+      tripData.forEach((day) => day.spots.forEach((s) => { if (s.lat && s.lon && s.lat > 30) allSpots.push({ lat: +s.lat, lon: +s.lon, hotel: isHotel(s.name) || !!s.mapAnchor }); }));
+      const anchors = [allSpots[0]];
+      allSpots.forEach((s) => { const prev = anchors[anchors.length - 1]; if (s.hotel && haversineKm(prev.lat, prev.lon, s.lat, s.lon) > 1) anchors.push(s); });
+      anchors.push(allSpots[allSpots.length - 1]);
+      const idxOf = (pt) => allSpots.indexOf(pt);
+      while (anchors.length - 2 < 9) {
+        let best = null;
+        for (let k = 0; k + 1 < anchors.length; k++) {
+          const a = anchors[k], b = anchors[k + 1];
+          const base = haversineKm(a.lat, a.lon, b.lat, b.lon);
+          for (let i = idxOf(a) + 1; i < idxOf(b); i++) {
+            const s = allSpots[i];
+            const detour = haversineKm(a.lat, a.lon, s.lat, s.lon) + haversineKm(s.lat, s.lon, b.lat, b.lon) - base;
+            if (!best || detour > best.detour) best = { detour, spot: s, at: k + 1 };
+          }
+        }
+        if (!best || best.detour < 3) break;
+        anchors.splice(best.at, 0, best.spot);
+      }
+      mids = anchors.slice(1, -1).map((s) => `${s.lat},${s.lon}`);
     } else if (mids.length > 9) {
       const step = mids.length / 9;
       mids = Array.from({ length: 9 }, (_, i) => mids[Math.floor(i * step)]);

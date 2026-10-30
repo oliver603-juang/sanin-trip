@@ -40,7 +40,7 @@ window.RAW_KML_DATA = [
   {
     dayId: "day2", date: "1/26 (二)", title: "往北挺進山陰", themeColor: "bg-[#E4C2C1]",
     spots: [
-      { sid: "sp012", name: "六甲山滑雪場", lat: 34.7679067, lon: 135.2426071, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp012", name: "六甲山滑雪場", mapAnchor: true, lat: 34.7679067, lon: 135.2426071, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp013", name: "有馬玩具博物館", lat: 34.7970654, lon: 135.2479087, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp014", name: "BOOKOFF", lat: 34.8801072, lon: 135.2299471, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp015", name: "2nd Street", lat: 34.876317, lon: 135.2245936, desc: "有玩偶，3c, 衣物", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },

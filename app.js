@@ -5081,7 +5081,7 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest, twdJpyRate, setTwdJpyRate, radarRequest, addCustomSpot, removeCustomSpot, addShoppingItem,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest, twdJpyRate, setTwdJpyRate, radarRequest, addCustomSpot, removeCustomSpot, addShoppingItem, organize,
 }) => {
   const [radarOpen, setRadarOpen] = useState(false);
   useEffect(() => { if (radarRequest) setRadarOpen(true); }, [radarRequest]);
@@ -5226,7 +5226,7 @@ const MetroTab = ({
         <RingHome {...common} gpsOn={gpsOn} gps={gps} enableGps={enableGps} openSettings={openSettings} openKeyModal={openKeyModal} twdJpyRate={twdJpyRate} setTwdJpyRate={setTwdJpyRate} showToast={showToast}
           openSim={() => setSimOpen(true)} shoppingList={shoppingList} />
       )}
-      {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} depart={depart} winterRoutes={winterRoutes} />}
+      {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} depart={depart} winterRoutes={winterRoutes} organize={organize} openKeyModal={openKeyModal} showToast={showToast} />}
       {view.level === "station" && (
         <StationPage {...common} dayIdx={view.day} spotIdx={view.spot} shoppingList={shoppingList} toggleBought={toggleBought}
           depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
@@ -5559,7 +5559,7 @@ const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, a
 };
 
 // ⚙️ 設定：金鑰、匯率、旅伴、資料備份（不常動的底層設定）
-const BACKUP_KEYS = ["stays", "departures", "modes", "expenses", "trip_spot_tickets", "ticket_overrides", "shopping_list", "start_times", "checklist_state", "metro_intel", "metro_stores", "metro_arrivals", "metro_checkout", "metro_fuel", "twd_jpy_rate", "travelers"];
+const BACKUP_KEYS = ["stays", "departures", "modes", "expenses", "trip_spot_tickets", "ticket_overrides", "shopping_list", "start_times", "checklist_state", "metro_intel", "metro_stores", "metro_arrivals", "metro_checkout", "metro_fuel", "metro_custom", "metro_order", "metro_skip", "metro_events", "twd_jpy_rate", "travelers"];
 const SettingsSheet = ({ close, openKeyModal, twdJpyRate, setTwdJpyRate, showToast }) => {
   const [trav, setTrav] = useState(() => localStorage.getItem("travelers") || window.TRAVELERS || "");
   const [rate, setRate] = useState(String(twdJpyRate || ""));
@@ -6015,7 +6015,175 @@ const chipStyle = (bg, bd, fg) => ({
 });
 
 // ---- ② 當日直線路線 ----
-const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay, edit }) => {
+// 日期列：6 天各一格，色條＝首頁環狀圖的路線色；捲動時固定在頂部（當日路線頁與站點頁共用）
+const DayTabs = ({ tripData, st, dayIdx, onPick, compact }) => (
+  <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#fff", borderBottom: `1px solid ${METRO.line}`, display: "flex", height: compact ? 50 : 60, boxSizing: "border-box" }}>
+    {tripData.map((d, i) => {
+      const sel = i === dayIdx;
+      const past = st.phase === "done" || (st.phase === "trip" && i < st.dayIdx);
+      const todayI = st.phase === "trip" && i === st.dayIdx;
+      return (
+        <button key={i} onClick={() => { haptic(); if (i !== dayIdx) onPick(i); }}
+          style={{ flex: 1, border: 0, borderBottom: `3px solid ${sel ? METRO.colors[i] : "transparent"}`, background: sel ? METRO.tints[i] + "66" : "transparent", fontFamily: "inherit", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, color: sel ? METRO.colors[i] : past ? "#8C8578" : METRO.ink }}>
+          <span style={{ fontFamily: MONO, fontSize: compact ? 12 : 13, fontWeight: 700 }}>{d.date.replace(/\s*\(.*\)/, "")}</span>
+          {!compact && <span style={{ fontSize: 11, fontWeight: sel || todayI ? 900 : 400 }}>{todayI ? "今天" : `第 ${i + 1} 天`}</span>}
+          <span style={{ width: 18, height: 3, borderRadius: 2, background: past && !sel ? METRO.past : METRO.colors[i] }} />
+        </button>
+      );
+    })}
+  </div>
+);
+// 左側站點軌道：固定在螢幕左緣，圓點帶編號；點或拖到任一站；最底＝今晚飯店／機場
+const StationRail = ({ spots, spotIdx, cur, color, tint, onPick }) => {
+  const n = spots.length;
+  const ref = useRef(null);
+  const [drag, setDrag] = useState(null); // 拖動中顯示的站名
+  const pickFromY = (y) => {
+    const r = ref.current.getBoundingClientRect();
+    const t = Math.min(1, Math.max(0, (y - r.top - 14) / (r.height - 28)));
+    return Math.round(t * (n - 1));
+  };
+  const onMove = (e) => {
+    if (e.buttons === 0 && e.pointerType === "mouse") return;
+    const i = pickFromY(e.clientY);
+    setDrag(i);
+  };
+  const onUp = (e) => { if (drag != null) { if (drag !== spotIdx) { haptic(); onPick(drag); } setDrag(null); } };
+  const rowH = Math.max(26, Math.min(44, Math.floor(400 / Math.max(1, n - 1))));
+  return (
+    <div ref={ref} onPointerDown={onMove} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => setDrag(null)}
+      style={{ position: "sticky", top: 62, width: 40, height: rowH * (n - 1) + 28, zIndex: 20, touchAction: "none", marginTop: 14 }}>
+      <div style={{ position: "absolute", left: 18, top: 14, width: 4, height: rowH * (n - 1), borderRadius: 2, background: tint }} />
+      {spots.map((sp, i) => {
+        const y = 14 + rowH * i;
+        const here = i === spotIdx;
+        const isCur = i === cur;
+        const done = cur >= 0 && i < cur;
+        const last = i === n - 1;
+        const hotel = isHotel(sp.name) || /機場|還車/.test(sp.name);
+        const size = here ? 26 : 20;
+        return (
+          <div key={sp.id} style={{ position: "absolute", left: 20 - size / 2, top: y - size / 2, width: size, height: size, borderRadius: size / 2, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center",
+            background: here ? METRO.here : isCur ? "#fff" : done ? tint : "#fff", border: here ? "2px solid #fff" : isCur ? `3px solid ${METRO.here}` : done ? "0" : `2px solid ${color}`,
+            color: here ? "#fff" : isCur ? METRO.here : done ? "#fff" : color, fontFamily: MONO, fontSize: here ? 12 : 10, fontWeight: 700, boxShadow: here ? "0 2px 6px rgba(0,0,0,.3)" : "none" }}>
+            {hotel && last ? (/機場/.test(sp.name) ? "✈" : "🏨") : i + 1}
+          </div>
+        );
+      })}
+      {drag != null && (
+        <div style={{ position: "absolute", left: 44, top: 14 + rowH * drag - 14, height: 28, padding: "0 10px", borderRadius: 14, background: METRO.ink, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", whiteSpace: "nowrap", pointerEvents: "none" }}>
+          {drag + 1}／{n} {metroShort(spots[drag].name)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ➕ 加一站抽屜：預設插在「下一站之前」；可展開程式建議（繞路最少）或手動選位置
+const InsertSheet = ({ day, dayIdx, spots, st, organize, close, openKeyModal, showToast }) => {
+  const [name, setName] = useState("");
+  const [stay, setStay] = useState("40 min");
+  const [geo, setGeo] = useState(null); // {lat,lon,label}
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("next"); // next | suggest | manual
+  const [afterSid, setAfterSid] = useState(null);
+  const isToday = st.phase === "trip" && st.dayIdx === dayIdx;
+  const cur = isToday ? st.spotIdx : -1;
+  const hotelI = hotelIndex(spots);
+  const lastInsertable = hotelI > 0 ? hotelI - 1 : spots.length - 1;
+  const defaultAfter = cur >= 0 ? spots[Math.min(cur, lastInsertable)] : spots[Math.max(0, Math.min(cur, lastInsertable))];
+  const km = (a, b) => parseFloat(getDistanceFromLatLonInKm(a.lat, a.lon, b.lat, b.lon));
+  const suggestions = useMemo(() => {
+    if (!geo) return [];
+    const out = [];
+    for (let i = Math.max(0, cur); i < spots.length - 1; i++) {
+      const a = spots[i], b = spots[i + 1];
+      if (isHotel(a.name)) continue;
+      const extra = km(a, geo) + km(geo, b) - km(a, b);
+      out.push({ i, after: a, before: b, extra, min: Math.round((extra / 40) * 60) });
+    }
+    return out.sort((x, y) => x.extra - y.extra).slice(0, 3);
+  }, [geo, spots, cur]);
+  const locate = async () => {
+    if (!name.trim()) return;
+    if (!localStorage.getItem("gemini_api_key")) { openKeyModal(true); return; }
+    setBusy(true);
+    try {
+      const anchor = defaultAfter || spots[0];
+      const text = await generateGeminiContent(`請用 Google 搜尋找出日本店家／景點「${name.trim()}」的座標，優先找離 ${anchor.name}（${anchor.lat},${anchor.lon}）最近的那一間。只輸出 JSON：{"lat":34.6,"lon":133.7,"label":"店名＋地址"}，找不到輸出 {"lat":null}`, null, true, { maxTokens: 1024 });
+      const m = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+      const o = m ? JSON.parse(m[0]) : null;
+      if (o && o.lat && o.lon) { setGeo({ lat: +o.lat, lon: +o.lon, label: o.label || "" }); showToast("已定位：" + (o.label || "")); }
+      else { setGeo(null); showToast("查不到座標，會以「位置未定」插入"); }
+    } catch (e) { showToast("定位失敗：" + e.message); }
+    setBusy(false);
+  };
+  const paste = async () => { try { const t = await navigator.clipboard.readText(); if (t) setName(t.split("\n")[0].slice(0, 60)); } catch (e) { showToast("請長按輸入框貼上"); } };
+  const confirm = () => {
+    if (!name.trim()) { showToast("請先輸入店名"); return; }
+    let after = mode === "next" ? defaultAfter : mode === "suggest" ? (suggestions[0] && suggestions[0].after) : spots.find((x) => x.sid === afterSid || x.id === afterSid);
+    if (!after) after = defaultAfter || spots[0];
+    const anchor = geo || after;
+    const sid = "c" + Date.now();
+    organize.insertSpotAt(day.dayId, { sid, name: "⭐ " + name.trim(), lat: anchor.lat, lon: anchor.lon, desc: geo ? geo.label : "位置未定（用前一站座標暫代，車程會不準）", defaultStay: stay, mapCode: "", ticket: { adult: 0, child: 0 }, custom: true, noCoord: !geo }, after.sid || after.id);
+    haptic(20); showToast(`已插在「${metroShort(after.name)}」之後`); close();
+  };
+  const stays = ["20 min", "40 min", "1 hr", "1.5 hr"];
+  const opt = (sel) => ({ border: `2px solid ${sel ? METRO.ink : METRO.line}`, background: sel ? "#F7F4EE" : "#fff", borderRadius: 14, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit", textAlign: "left", color: METRO.ink, width: "100%" });
+  return (
+    <Sheet title={`➕ 加一站到 ${day.date}`} close={close}>
+      <div style={{ fontSize: 12, fontWeight: 900, color: METRO.sub }}>1　店名（或貼上 Google 地圖分享的文字）</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例：コーナン 倉敷店" style={{ flex: 1, minHeight: 48, borderRadius: 12, border: `2px solid ${METRO.ink}`, padding: "0 12px", fontSize: 15, fontFamily: "inherit" }} />
+        <button onClick={paste} style={{ width: 48, minHeight: 48, borderRadius: 12, border: 0, background: "#F7F4EE", fontSize: 18 }}>📋</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <PillBtn onClick={locate} style={{ minHeight: 40, fontSize: 12, opacity: busy ? 0.6 : 1 }}>{busy ? "定位中…" : "🔍 AI 查座標（可略過）"}</PillBtn>
+        <span style={{ fontSize: 11, color: geo ? "#0B5E36" : METRO.sub, flex: 1 }}>{geo ? "✅ " + geo.label : "沒座標也能插，標示「位置未定」"}</span>
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 900, color: METRO.sub }}>2　插在哪裡</div>
+      <button onClick={() => setMode("next")} style={opt(mode === "next")}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: mode === "next" ? METRO.ink : "#fff", border: `2px solid ${mode === "next" ? METRO.ink : "#C9C3B8"}`, color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{mode === "next" ? "✓" : ""}</span>
+        <span style={{ display: "flex", flexDirection: "column" }}><span style={{ fontSize: 13, fontWeight: 900 }}>現在就去（預設）</span><span style={{ fontSize: 11, color: METRO.sub }}>插在「{metroShort(defaultAfter ? defaultAfter.name : "")}」之後、下一站之前</span></span>
+      </button>
+      <button onClick={() => { if (!geo) { showToast("要先 AI 查座標才能算建議"); return; } setMode("suggest"); }} style={opt(mode === "suggest")}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: mode === "suggest" ? METRO.ink : "#fff", border: `2px solid ${mode === "suggest" ? METRO.ink : "#C9C3B8"}`, color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{mode === "suggest" ? "✓" : ""}</span>
+        <span style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 900 }}>程式建議：繞路最少</span>
+          {suggestions.length ? suggestions.map((g, k) => (
+            <span key={k} style={{ fontSize: 11, color: k === 0 ? METRO.ink : METRO.sub }}>{k + 1}. {metroShort(g.after.name)} → ★ → {metroShort(g.before.name)}　+{g.min} 分</span>
+          )) : <span style={{ fontSize: 11, color: METRO.sub }}>需要座標</span>}
+        </span>
+      </button>
+      <button onClick={() => setMode("manual")} style={opt(mode === "manual")}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: mode === "manual" ? METRO.ink : "#fff", border: `2px solid ${mode === "manual" ? METRO.ink : "#C9C3B8"}`, color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{mode === "manual" ? "✓" : ""}</span>
+        <span style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 900 }}>自己選位置</span>
+          {mode === "manual" && (
+            <select value={afterSid || ""} onChange={(e) => setAfterSid(e.target.value)} style={{ marginTop: 6, minHeight: 40, borderRadius: 10, border: `1px solid ${METRO.line}`, fontFamily: "inherit", fontSize: 13 }}>
+              <option value="">— 插在哪一站之後 —</option>
+              {spots.map((x, i) => i <= lastInsertable && i >= Math.max(0, cur) ? <option key={x.id} value={x.sid || x.id}>{i + 1}. {metroShort(x.name)}</option> : null)}
+            </select>
+          )}
+        </span>
+      </button>
+      <div style={{ fontSize: 12, fontWeight: 900, color: METRO.sub }}>3　停留時間</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {stays.map((o) => (
+          <button key={o} onClick={() => setStay(o)} style={{ minHeight: 40, padding: "0 12px", borderRadius: 20, border: `2px solid ${o === stay ? METRO.colors[dayIdx] : METRO.line}`, background: o === stay ? METRO.colors[dayIdx] : "#fff", color: o === stay ? METRO.onColor[dayIdx] : METRO.ink, fontFamily: MONO, fontSize: 13, fontWeight: 700 }}>{o.replace(" min", "分").replace(" hr", "小時")}</button>
+        ))}
+      </div>
+      <PillBtn dark onClick={confirm} style={{ minHeight: 52, fontSize: 15, background: METRO.colors[dayIdx], borderColor: METRO.colors[dayIdx], color: METRO.onColor[dayIdx] }}>插入</PillBtn>
+    </Sheet>
+  );
+};
+
+const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay, edit, organize, openKeyModal, showToast }) => {
+  const [organizing, setOrganizing] = useState(false);
+  const [insertOpen, setInsertOpen] = useState(false);
+  const pressTimer = useRef(null);
+  const pressStart = () => { clearTimeout(pressTimer.current); pressTimer.current = setTimeout(() => { haptic(30); setOrganizing(true); }, 300); };
+  const pressEnd = () => clearTimeout(pressTimer.current);
   const day = tripData[dayIdx];
   const spots = day.spots;
   const color = METRO.colors[dayIdx], tint = METRO.tints[dayIdx], on = METRO.onColor[dayIdx];
@@ -6084,23 +6252,14 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
         })()}
       </div>
 
-      {/* 日期列：6 天各一格，色條＝首頁環狀圖的路線色；捲動時固定在頂部 */}
-      <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#fff", borderBottom: `1px solid ${METRO.line}`, display: "flex", height: 60, boxSizing: "border-box" }}>
-        {tripData.map((d, i) => {
-          const sel = i === dayIdx;
-          const past = st.phase === "done" || (st.phase === "trip" && i < st.dayIdx);
-          const todayI = st.phase === "trip" && i === st.dayIdx;
-          return (
-            <button key={i} onClick={() => { haptic(); if (i !== dayIdx) go({ level: "day", day: i }, true); }}
-              style={{ flex: 1, border: 0, borderBottom: `3px solid ${sel ? METRO.colors[i] : "transparent"}`, background: sel ? METRO.tints[i] + "66" : "transparent", fontFamily: "inherit", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, color: sel ? METRO.colors[i] : past ? "#8C8578" : METRO.ink }}>
-              <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700 }}>{d.date.replace(/\s*\(.*\)/, "")}</span>
-              <span style={{ fontSize: 11, fontWeight: sel || todayI ? 900 : 400 }}>{todayI ? "今天" : `第 ${i + 1} 天`}</span>
-              <span style={{ width: 18, height: 3, borderRadius: 2, background: past && !sel ? METRO.past : METRO.colors[i] }} />
-            </button>
-          );
-        })}
-      </div>
+      <DayTabs tripData={tripData} st={st} dayIdx={dayIdx} onPick={(i) => go({ level: "day", day: i }, true)} />
 
+      {organizing && (
+        <div style={{ position: "sticky", top: 60, zIndex: 31, background: "#FFE08A", color: "#5A4300", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 900 }}>
+          <span style={{ flex: 1 }}>整理模式：上下移、略過</span>
+          <button onClick={() => { haptic(); setOrganizing(false); }} style={{ minHeight: 36, padding: "0 14px", borderRadius: 18, border: 0, background: "#5A4300", color: "#fff", fontFamily: "inherit", fontWeight: 900 }}>完成</button>
+        </div>
+      )}
       <div style={{ padding: "14px 16px 0" }}>
         {prevHotel && (
           <StopRow time="" lineTop={null} lineBottom={METRO.past} dot={<span style={capsule("#8C8578")} />}>
@@ -6126,7 +6285,24 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
                 : s.custom ? <span style={{ fontSize: 16, lineHeight: "18px" }}>⭐</span>
                 : minor ? <span style={{ width: 8, height: 8, borderRadius: 4, background: done ? tint : "#fff", border: done ? 0 : `2px solid ${color}` }} />
                 : <span style={{ width: 18, height: 18, boxSizing: "border-box", borderRadius: 9, background: done ? tint : "#fff", border: done ? 0 : `4px solid ${color}` }} />}
-              onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}>
+              onClick={() => { if (organizing) return; haptic(); go({ level: "station", day: dayIdx, spot: i }); }}
+              onPointerDown={pressStart} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}>
+              {organizing && (() => {
+                const locked = (isToday && i <= cur) || isPastDay || hotel || /還車|機場/.test(s.name);
+                const allSids = organize.composeDay(window.RAW_KML_DATA[dayIdx]).map((x) => x.sid);
+                const pos = allSids.indexOf(s.sid || s.id);
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }} onClick={(e) => e.stopPropagation()}>
+                    {locked ? <span style={{ fontSize: 11, color: METRO.sub }}>🔒 {hotel ? "住宿固定在最後" : isPastDay || (isToday && i <= cur) ? "已到達，不能移動" : "固定"}</span> : (
+                      <>
+                        <button disabled={pos <= Math.max(0, cur + 1)} onClick={() => { haptic(); organize.moveSpot(day.dayId, s.sid || s.id, -1); }} style={orgBtn(pos <= Math.max(0, cur + 1))}>▲ 上移</button>
+                        <button onClick={() => { haptic(); if (!organize.moveSpot(day.dayId, s.sid || s.id, 1)) showToast("已經在最後"); }} style={orgBtn(false)}>▼ 下移</button>
+                        <button onClick={() => { haptic(); organize.toggleSkip(s.sid || s.id); showToast("已略過，底部可還原"); }} style={{ ...orgBtn(false), borderColor: "#E2342F", color: "#E2342F" }}>略過</button>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               {here ? (
                 <div style={{ background: "#fff", border: `2px solid ${METRO.here}`, borderRadius: 16, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -6191,18 +6367,40 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
           }
           return items;
         })}
+        {(() => {
+          const skipped = organize ? organize.composeDay(window.RAW_KML_DATA[dayIdx]).filter((x) => x.skipped) : [];
+          if (!skipped.length) return null;
+          return (
+            <div style={{ marginTop: 12, background: "#fff", border: `1px dashed ${METRO.past}`, borderRadius: 14, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: METRO.sub }}>已略過 {skipped.length} 站（記帳保留）</div>
+              {skipped.map((x) => (
+                <div key={x.sid} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, color: "#8C8578", textDecoration: "line-through", flex: 1 }}>{x.name}</span>
+                  <button onClick={() => { haptic(); organize.toggleSkip(x.sid); }} style={orgBtn(false)}>還原</button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
         <div style={{ marginTop: 10, fontSize: 11, color: METRO.sub, lineHeight: "18px" }}>
+          {organizing ? "整理模式：▲▼ 移動、略過、拖不動的站有 🔒。按右上「完成」結束。" : "長按任一站 0.3 秒進入整理模式（上下移、略過）；右下角 ＋ 加一站。"}
           時間依「出發時間＋各站停留＋車程」推算；點標題的出發時間可改。按「出發往下一站」或 GPS 進入站點 300 m 內，我的位置就前進一站。各站停留、門票在站點頁可改。
         </div>
       </div>
+      {organize && !(st.phase === "done" || (st.phase === "trip" && dayIdx < st.dayIdx)) && (
+        <button aria-label="加一站" onClick={() => { haptic(); setInsertOpen(true); }}
+          style={{ position: "fixed", right: 16, bottom: "calc(88px + env(safe-area-inset-bottom))", width: 56, height: 56, borderRadius: 28, border: 0, background: METRO.ink, color: "#fff", fontSize: 28, fontWeight: 700, boxShadow: "0 4px 12px rgba(0,0,0,.3)", zIndex: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>＋</button>
+      )}
+      {insertOpen && <InsertSheet day={day} dayIdx={dayIdx} spots={spots} st={st} organize={organize} close={() => setInsertOpen(false)} openKeyModal={openKeyModal} showToast={showToast} />}
     </div>
   );
 };
+const orgBtn = (dis) => ({ minHeight: 32, padding: "0 10px", borderRadius: 8, border: `1px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 12, fontWeight: 700, color: METRO.ink, opacity: dis ? 0.35 : 1 });
 const hdrChip = (bg, fg) => ({ height: 28, padding: "0 10px", borderRadius: 14, background: bg, color: fg, fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center" });
 const hdrNav = (on) => ({ minHeight: 40, padding: "0 12px", borderRadius: 20, border: 0, background: "rgba(255,255,255,.2)", color: on, fontFamily: "inherit", fontSize: 12, fontWeight: 900 });
 const capsule = (c) => ({ width: 26, height: 18, boxSizing: "border-box", borderRadius: 9, background: "#fff", border: `3px solid ${c}` });
-const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick, refEl }) => (
-  <div ref={refEl} onClick={onClick} style={{ display: "flex", gap: 10, minHeight: 52, cursor: onClick ? "pointer" : "default", WebkitTapHighlightColor: "transparent" }}>
+const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick, refEl, ...rest }) => (
+  <div ref={refEl} onClick={onClick} {...rest} style={{ display: "flex", gap: 10, minHeight: 52, cursor: onClick ? "pointer" : "default", WebkitTapHighlightColor: "transparent" }}>
     <div style={{ width: 44, paddingTop: 4, fontFamily: MONO, fontSize: 12, fontWeight: 700, color: timeColor || "#3D3830", textAlign: "right", flexShrink: 0 }}>{time}</div>
     <div style={{ width: 26, display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
       <div style={{ width: 6, height: 6, background: lineTop || "transparent" }} />
@@ -6214,6 +6412,34 @@ const StopRow = ({ time, timeColor, lineTop, lineBottom, dot, children, onClick,
 );
 
 // ---- ③ 站點提醒 ----
+// 🧭 車頭方向助手：輸入儀表板羅盤讀數 → 算出目標在左／右／前／後幾度
+const turnAdvice = (heading, bearing) => {
+  const rel = ((bearing - heading) % 360 + 360) % 360; // 0=正前，90=正右，180=正後，270=正左
+  if (rel <= 25 || rel >= 335) return { side: "前", text: "目標在正前方，出口直走或選最接近直行的方向", arrow: "⬆️", rel };
+  if (rel < 155) return { side: "右", text: `目標在右${rel < 70 ? "前" : rel > 110 ? "後" : ""}方 ${Math.round(rel)}°，出口右轉`, arrow: "➡️", rel };
+  if (rel <= 205) return { side: "後", text: "目標在正後方，出口選有迴轉空間的一側，或先右轉再找路口迴轉", arrow: "⬇️", rel };
+  return { side: "左", text: `目標在左${rel > 290 ? "前" : rel < 250 ? "後" : ""}方 ${Math.round(360 - rel)}°，出口左轉`, arrow: "⬅️", rel };
+};
+// 出發方位提示：配合儀表板實體羅盤，不用輸入。日本靠左行駛，左轉最順，所以只寫左轉口訣。
+// 顯示時機：還沒按「出發」，或按出發後 5 分鐘內（之後 GPS 已接手，提示收起）
+const HeadingHint = ({ bearing, spot, nowMin }) => {
+  if (spot.actualDepTime && nowMin - timeToMinutes(spot.actualDepTime) > 5) return null;
+  const b = Math.round(bearing);
+  const en = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(b / 45) % 8];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: `2px solid ${METRO.ink}`, borderRadius: 14, padding: "10px 14px" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 64 }}>
+        <span style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, lineHeight: "30px" }}>{b}°</span>
+        <span style={{ fontSize: 12, fontWeight: 900 }}>{en}・{bearingName(b)}</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 900 }}>目的地在 {b}°（{en}）</span>
+        <span style={{ fontSize: 13 }}>車頭左轉 ＞ 羅盤紅線數字變小</span>
+        <span style={{ fontSize: 11, color: METRO.sub }}>出口選讓紅線數字往 {b} 靠近的那邊；差不多在正後方就選好迴轉的一側</span>
+      </div>
+    </div>
+  );
+};
 const StationPage = ({
   tripData, st, dayIdx, spotIdx, go, back, shoppingList, toggleBought, depart,
   openExpenseModal, openChainFinder, showToast, winterRoutes, sim, launchGemini: launchGeminiPrice, edit, openKeyModal, removeCustomSpot,
@@ -6253,7 +6479,7 @@ const StationPage = ({
           <span style={{ opacity: 0.7 }}>›</span>
           <button onClick={() => { haptic(); go({ level: "day", day: dayIdx }, "replaceParent"); }} style={crumb(on)}>{String(dayIdx + 1).padStart(2, "0")} {day.title}</button>
           <span style={{ opacity: 0.7 }}>›</span>
-          <span>本站</span>
+          <span>第 {spotIdx + 1}／{spots.length} 站</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isHere && <span style={{ height: 24, padding: "0 9px", borderRadius: 12, background: METRO.here, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center" }}>{st.source === "time" ? "推估在這" : "我在這"}</span>}
@@ -6269,7 +6495,23 @@ const StationPage = ({
         </div>
       </div>
 
-      <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <DayTabs tripData={tripData} st={st} dayIdx={dayIdx} compact onPick={(i) => go({ level: "station", day: i, spot: 0 }, true)} />
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+      <div style={{ width: 40, flexShrink: 0, alignSelf: "stretch" }}>
+        <StationRail spots={spots} spotIdx={spotIdx} cur={st.phase === "trip" && st.dayIdx === dayIdx ? st.spotIdx : -1} color={color} tint={METRO.tints[dayIdx]} onPick={(i) => go({ level: "station", day: dayIdx, spot: i }, true)} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, padding: "14px 16px 14px 4px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {spotIdx === 0 && dayIdx > 0 && (window.HOTEL_INFO || [])[dayIdx - 1] && (() => {
+          const h = (window.HOTEL_INFO || [])[dayIdx - 1];
+          const b = bearingTo(h, s);
+          return (
+            <SectionCard color="#7B52AE" title="從飯店出發" right={`${h.location} → 本站`}>
+              <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700 }}>🧭 本站在飯店的{bearingName(b)}方（{Math.round(b)}°）・預計 {s.time} 到</div>
+              <HeadingHint bearing={b} spot={s} nowMin={st.nowMin} />
+              <div style={{ fontSize: 11, color: METRO.sub }}>還在飯店車道裡就先按導航、滑行 5–10 公尺讓箭頭轉正；出口方向以上面為準。</div>
+            </SectionCard>
+          );
+        })()}
         {edit && (() => {
           const stayOpts = ["0 min", "20 min", "30 min", "40 min", "1 hr", "1.5 hr", "2 hr", "3 hr"];
           const curStay = s.stay;
@@ -6380,6 +6622,7 @@ const StationPage = ({
                 <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700 }}>🧭 下一站在本站的{bearingName(bearingTo(s, next))}方（{Math.round(bearingTo(s, next))}°）</div>
               </div>
             </div>
+            {isDepartureTrap(s.name) && <HeadingHint bearing={bearingTo(s, next)} spot={s} nowMin={st.nowMin} />}
             <div style={{ display: "flex", gap: 6 }}>
               <PillBtn dark href={mapsDir(next.lat, next.lon)}>導航到下一站</PillBtn>
             </div>
@@ -6439,6 +6682,7 @@ const StationPage = ({
         )}
       </div>
 
+      </div>
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: `linear-gradient(rgba(247,244,238,0), ${METRO.bg} 30%)`, display: "flex", gap: 8 }}>
         {next ? (
           isActiveDay ? (
@@ -6909,17 +7153,51 @@ function App() {
   const [customSpots, setCustomSpots] = useState(() => { try { return JSON.parse(localStorage.getItem("metro_custom") || "{}"); } catch (e) { return {}; } });
   useEffect(() => { try { localStorage.setItem("metro_custom", JSON.stringify(customSpots)); } catch (e) {} }, [customSpots]);
   const addCustomSpot = (dayId, spot) => setCustomSpots((p) => ({ ...p, [dayId]: [...(p[dayId] || []), spot] }));
-  const removeCustomSpot = (dayId, sid) => setCustomSpots((p) => ({ ...p, [dayId]: (p[dayId] || []).filter((x) => x.sid !== sid) }));
-  const mergeCustom = (day) => {
+  const removeCustomSpot = (dayId, sid) => { setCustomSpots((p) => ({ ...p, [dayId]: (p[dayId] || []).filter((x) => x.sid !== sid) })); setOrderMap((p) => p[dayId] ? { ...p, [dayId]: p[dayId].filter((x) => x !== sid) } : p); };
+  // 順序覆寫（便利貼）：每天一份 sid 陣列；略過用 skipMap 標記，不刪資料
+  const [orderMap, setOrderMap] = useState(() => { try { return JSON.parse(localStorage.getItem("metro_order") || "{}"); } catch (e) { return {}; } });
+  const [skipMap, setSkipMap] = useState(() => { try { return JSON.parse(localStorage.getItem("metro_skip") || "{}"); } catch (e) { return {}; } });
+  useEffect(() => { try { localStorage.setItem("metro_order", JSON.stringify(orderMap)); } catch (e) {} }, [orderMap]);
+  useEffect(() => { try { localStorage.setItem("metro_skip", JSON.stringify(skipMap)); } catch (e) {} }, [skipMap]);
+  // 這一天「全部站」（原始＋自訂，含略過），照便利貼排序
+  const composeDay = (day) => {
     const list = customSpots[day.dayId] || [];
-    if (!list.length) return day.spots;
-    const out = day.spots.slice();
+    const base = day.spots.slice();
     list.forEach((c) => {
-      let i = out.findIndex((x) => x.sid === c.afterSid);
-      if (i < 0) { const h = out.findIndex((x) => isHotel(x.name)); i = h > 0 ? h - 1 : out.length - 1; }
-      out.splice(i + 1, 0, { ...c, custom: true });
+      let i = base.findIndex((x) => x.sid === c.afterSid);
+      if (i < 0) { const h = base.findIndex((x) => isHotel(x.name)); i = h > 0 ? h - 1 : base.length - 1; }
+      base.splice(i + 1, 0, { ...c, custom: true });
     });
-    return out;
+    const order = orderMap[day.dayId];
+    let out = base;
+    if (order && order.length) {
+      const by = {}; base.forEach((x) => { by[x.sid] = x; });
+      const seen = new Set();
+      out = order.filter((sid) => by[sid]).map((sid) => { seen.add(sid); return by[sid]; });
+      base.forEach((x, i) => { if (!seen.has(x.sid)) { // 便利貼沒記到的（新資料）：插回原本的相對位置
+        const prev = base[i - 1]; const k = prev ? out.findIndex((y) => y.sid === prev.sid) : -1; out.splice(k + 1, 0, x); } });
+    }
+    return out.map((x) => (skipMap[x.sid] ? { ...x, skipped: true } : x));
+  };
+  const mergeCustom = (day) => composeDay(day).filter((x) => !x.skipped);
+  const setDayOrder = (dayId, sids) => setOrderMap((p) => ({ ...p, [dayId]: sids }));
+  const moveSpot = (dayId, sid, dir) => {
+    const day = window.RAW_KML_DATA.find((d) => d.dayId === dayId);
+    const sids = composeDay(day).map((x) => x.sid);
+    const i = sids.indexOf(sid), j = i + dir;
+    if (i < 0 || j < 0 || j >= sids.length) return false;
+    [sids[i], sids[j]] = [sids[j], sids[i]];
+    setDayOrder(dayId, sids);
+    return true;
+  };
+  const toggleSkip = (sid) => setSkipMap((p) => { const n = { ...p }; if (n[sid]) delete n[sid]; else n[sid] = true; return n; });
+  const insertSpotAt = (dayId, spot, afterSid) => {
+    const day = window.RAW_KML_DATA.find((d) => d.dayId === dayId);
+    const sids = composeDay(day).map((x) => x.sid);
+    const i = afterSid ? sids.indexOf(afterSid) : -1;
+    sids.splice(i + 1, 0, spot.sid);
+    setCustomSpots((p) => ({ ...p, [dayId]: [...(p[dayId] || []), { ...spot, afterSid }] }));
+    setDayOrder(dayId, sids);
   };
   const tripData = useMemo(() => {
     return window.RAW_KML_DATA.map((rawDay, dayIdx) => {
@@ -7010,13 +7288,14 @@ function App() {
       });
       return { ...day, defaultStart: resolvedStart, spots: newSpots };
     });
-  }, [dayStartTimes, actualDepartures, simDeps, stays, transportModes, customSpots]);
+  }, [dayStartTimes, actualDepartures, simDeps, stays, transportModes, customSpots, orderMap, skipMap]);
 
   // --- 統計數據計算 ---
   const dailyStats = useMemo(() => {
-    return tripData.map((d) => {
+    return tripData.map((d, di) => {
       let dayTotal = 0;
-      d.spots.forEach((spot) => {
+      const skippedExtra = composeDay(window.RAW_KML_DATA[di]).filter((x) => x.skipped).map((x) => ({ ...x, id: x.sid }));
+      [...d.spots, ...skippedExtra].forEach((spot) => {
         const spotExpenses = expenses[spot.id] || [];
         spotExpenses.forEach((e) => (dayTotal += e.amount || 0));
         const currentTicket = getTicket(spot, ticketOverrides);
@@ -7031,7 +7310,7 @@ function App() {
       });
       return { ...d, totalTwd: dayTotal };
     });
-  }, [tripData, expenses, spotTicketCounts, ticketOverrides]);
+  }, [tripData, expenses, spotTicketCounts, ticketOverrides, skipMap, orderMap, customSpots]);
   const stats = {
     totalJpy: dailyStats.reduce((sum, d) => sum + d.totalTwd, 0),
   };
@@ -7882,6 +8161,7 @@ ${JSON.stringify(hotelWithDates)}
           radarRequest={radarRequest}
           addCustomSpot={addCustomSpot}
           removeCustomSpot={removeCustomSpot}
+          organize={{ composeDay, moveSpot, toggleSkip, insertSpotAt, skipMap }}
           addShoppingItem={addShoppingItem}
           intelAllRequest={intelAllRequest}
           simRequest={metroSimRequest}

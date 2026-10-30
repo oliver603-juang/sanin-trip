@@ -5062,7 +5062,7 @@ const PillBtn = ({ href, onClick, dark, children, style }) => {
 // ============================================================================
 const MetroTab = ({
   tripData, view, go, back, shoppingList, toggleBought, handleDepartureToggle, simDeps, setSimDeps,
-  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest,
+  openExpenseModal, openChainFinder, scanSpotNearby, openSettings, openDetail, winterRoutes, simRequest, launchGemini: launchGeminiPrice, edit, openKeyModal, intelAllRequest, twdJpyRate, setTwdJpyRate,
 }) => {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -5202,7 +5202,7 @@ const MetroTab = ({
         </div>
       )}
       {view.level === "ring" && (
-        <RingHome {...common} gpsOn={gpsOn} gps={gps} enableGps={enableGps} openSettings={openSettings}
+        <RingHome {...common} gpsOn={gpsOn} gps={gps} enableGps={enableGps} openSettings={openSettings} openKeyModal={openKeyModal} twdJpyRate={twdJpyRate} setTwdJpyRate={setTwdJpyRate} showToast={showToast}
           openSim={() => setSimOpen(true)} shoppingList={shoppingList} />
       )}
       {view.level === "day" && <DayLine {...common} dayIdx={view.day} openDetail={openDetail} depart={depart} winterRoutes={winterRoutes} />}
@@ -5278,7 +5278,7 @@ const KIND_CHECKS = {
   hotel: "這是住宿。請查：1) 入住與退房時間、停車場費用與是否需預約；2) 晚餐／早餐時段與最後入場；3) 溫泉或設施的使用時間、小學生可否使用；4) 附近 1 公里內的超市或便利商店（買隔天早餐）。",
 };
 const buildIntelPrompt = (s, day, arr, dep, mode) => {
-  const fam = window.TRAVELERS || "2 大 2 小（兩個小學男生）";
+  const fam = localStorage.getItem("travelers") || window.TRAVELERS || "2 大 2 小（兩個小學男生）";
   const date = "2027 年 " + day.date.replace(/\s*\(/, "（").replace(/\)/, "）");
   return `你是日本山陰山陽冬季自駕旅遊的「副駕情報官」。請用 Google 搜尋該地點的日文官方資訊，給出極簡、高價值的實戰提醒。
 
@@ -5427,16 +5427,83 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
   );
 };
 
+// ⚙️ 設定：金鑰、匯率、旅伴、資料備份（不常動的底層設定）
+const BACKUP_KEYS = ["stays", "departures", "modes", "expenses", "trip_spot_tickets", "ticket_overrides", "shopping_list", "start_times", "checklist_state", "metro_intel", "metro_stores", "metro_arrivals", "metro_checkout", "metro_fuel", "twd_jpy_rate", "travelers"];
+const SettingsSheet = ({ close, openKeyModal, twdJpyRate, setTwdJpyRate, showToast }) => {
+  const [trav, setTrav] = useState(() => localStorage.getItem("travelers") || window.TRAVELERS || "");
+  const [rate, setRate] = useState(String(twdJpyRate || ""));
+  const hasKey = !!localStorage.getItem("gemini_api_key");
+  const saveTrav = (v) => { setTrav(v); try { localStorage.setItem("travelers", v); } catch (e) {} };
+  const saveRate = () => {
+    const r = parseFloat(rate);
+    if (r > 1 && r < 20) { setTwdJpyRate(r); localStorage.setItem("twd_jpy_rate", String(r)); localStorage.setItem("twd_jpy_rate_date", new Date().toDateString()); showToast("匯率已更新"); }
+    else showToast("請輸入 1 台幣兌多少日圓，例如 4.6");
+  };
+  const exportData = () => {
+    const obj = {}; BACKUP_KEYS.forEach((k) => { const v = localStorage.getItem(k); if (v != null) obj[k] = v; });
+    const blob = new Blob([JSON.stringify({ v: 1, at: new Date().toISOString(), data: obj })], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "sanin-trip-backup-" + new Date().toISOString().slice(0, 10) + ".json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  const importData = (file) => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const o = JSON.parse(rd.result); const d = o.data || o;
+        let n = 0; Object.keys(d).forEach((k) => { if (BACKUP_KEYS.includes(k)) { localStorage.setItem(k, d[k]); n++; } });
+        showToast(`已還原 ${n} 項，重新載入中…`); setTimeout(() => location.reload(), 800);
+      } catch (e) { showToast("檔案格式不對"); }
+    };
+    rd.readAsText(file);
+  };
+  const resetTrip = () => {
+    if (!window.confirm("清除所有行程紀錄（出發紀錄、停留時間、記帳、清單打勾、AI 查核）？金鑰會保留。")) return;
+    BACKUP_KEYS.forEach((k) => localStorage.removeItem(k)); location.reload();
+  };
+  const row = { display: "flex", flexDirection: "column", gap: 6, padding: "10px 0", borderTop: `1px solid ${METRO.line}` };
+  const input = { minHeight: 44, borderRadius: 12, border: `2px solid ${METRO.line}`, padding: "0 12px", fontSize: 14, fontFamily: "inherit", color: METRO.ink, background: "#fff", width: "100%", boxSizing: "border-box" };
+  return (
+    <Sheet title="設定" close={close}>
+      <div style={{ fontSize: 12, color: METRO.sub, marginTop: -6 }}>不常改的底層設定。旅途工具在底部「更多」。</div>
+      <div style={{ ...row, borderTop: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>🔑 Gemini API 金鑰 <span style={{ fontSize: 11, color: hasKey ? "#0B5E36" : "#8A1C12", fontWeight: 700 }}>{hasKey ? "已設定" : "未設定（AI 查核、找賣家、估票價都需要）"}</span></div>
+        <PillBtn onClick={() => { close(); openKeyModal(true); }}>{hasKey ? "更換金鑰" : "設定金鑰"}</PillBtn>
+      </div>
+      <div style={row}>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>💱 匯率（1 台幣 ＝ ? 日圓）<span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>記帳換算用，有金鑰時每天自動更新</span></div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input type="number" inputMode="decimal" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} style={{ ...input, fontFamily: MONO }} />
+          <PillBtn dark onClick={saveRate} style={{ flex: 0, padding: "0 16px" }}>儲存</PillBtn>
+        </div>
+      </div>
+      <div style={row}>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>👥 旅伴 <span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>AI 查核會依此給建議</span></div>
+        <input value={trav} onChange={(e) => saveTrav(e.target.value)} placeholder="例：2 大 2 小（9 歲、10 歲男生）" style={input} />
+      </div>
+      <div style={row}>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>💾 資料備份 <span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>換手機或清快取前先匯出</span></div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <PillBtn onClick={exportData}>匯出 JSON</PillBtn>
+          <label style={{ flex: 1, minHeight: 48, borderRadius: 12, border: `2px solid ${METRO.ink}`, background: "#fff", fontSize: 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", color: METRO.ink }}>
+            匯入還原<input type="file" accept="application/json" style={{ display: "none" }} onChange={(e) => e.target.files[0] && importData(e.target.files[0])} />
+          </label>
+        </div>
+        <PillBtn onClick={resetTrip} style={{ borderColor: "#E2342F", color: "#E2342F" }}>重置行程紀錄</PillBtn>
+      </div>
+    </Sheet>
+  );
+};
+
 // 🩹 順路補給：以「目前位置」在 Google 地圖搜尋（地圖自己定位，不需要本 App 的 GPS 權限）
-const SOS_ITEMS = [
-  ["💊", "藥局", "ドラッグストア"],
-  ["🏪", "超商", "コンビニ"],
-  ["⛽", "加油站", "ガソリンスタンド"],
-  ["🚻", "廁所", "トイレ"],
-  ["🅿️", "停車場", "駐車場"],
-  ["🏧", "ATM", "セブン銀行 ATM"],
-  ["🏥", "醫院・急診", "病院 救急"],
-  ["🍼", "嬰幼兒用品", "西松屋"],
+const SOS_GROUPS = [
+  { title: "🎮 小學生＆爸爸尋寶", items: [
+    ["🧱", "玩具／樂高", "おもちゃ屋"], ["♻️", "二手店", "ホビーオフ"], ["🕵️", "駿河屋", "駿河屋"],
+    ["✏️", "文具", "文房具店"], ["🎰", "扭蛋", "ガチャガチャ"], ["🛒", "唐吉訶德", "ドン・キホーテ"],
+    ["🏬", "大型超市", "イオン"], ["🔧", "居家量販", "ホームセンター"],
+  ] },
+  { title: "🚗 自駕救急", items: [
+    ["💊", "藥妝店", "ドラッグストア"], ["🏪", "超商・廁所", "コンビニ"], ["⛽", "加油站", "ガソリンスタンド"], ["🅿️", "停車場", "駐車場"],
+  ] },
 ];
 const mapsSearchHere = (q) => "https://www.google.com/maps/search/" + encodeURIComponent(q);
 const Sheet = ({ title, close, children }) => (
@@ -5449,17 +5516,22 @@ const Sheet = ({ title, close, children }) => (
   </div>
 );
 const SosSheet = ({ close }) => (
-  <Sheet title="順路補給・急用" close={close}>
-    <div style={{ fontSize: 12, color: METRO.sub }}>用目前位置在 Google 地圖搜尋最近的店，開車時請讓副駕操作</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-      {SOS_ITEMS.map(([ic, name, q]) => (
-        <a key={q} href={mapsSearchHere(q)} target="_blank" rel="noreferrer" onClick={() => haptic()}
-          style={{ minHeight: 56, borderRadius: 14, border: `2px solid ${METRO.line}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", textDecoration: "none", color: METRO.ink }}>
-          <span style={{ fontSize: 24 }}>{ic}</span>
-          <span style={{ display: "flex", flexDirection: "column" }}><span style={{ fontSize: 14, fontWeight: 900 }}>{name}</span><span style={{ fontSize: 11, color: METRO.sub }}>{q}</span></span>
-        </a>
-      ))}
-    </div>
+  <Sheet title="周邊搜・順路找" close={close}>
+    <div style={{ fontSize: 12, color: METRO.sub }}>用目前位置在 Google 地圖搜最近的店，開車時請讓副駕操作</div>
+    {SOS_GROUPS.map((g) => (
+      <div key={g.title} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>{g.title}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+          {g.items.map(([ic, name, q]) => (
+            <a key={q} href={mapsSearchHere(q)} target="_blank" rel="noreferrer" onClick={() => haptic()}
+              style={{ minHeight: 52, borderRadius: 14, border: `2px solid ${METRO.line}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", textDecoration: "none", color: METRO.ink }}>
+              <span style={{ fontSize: 22 }}>{ic}</span>
+              <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><span style={{ fontSize: 14, fontWeight: 900 }}>{name}</span><span style={{ fontSize: 11, color: METRO.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q}</span></span>
+            </a>
+          ))}
+        </div>
+      </div>
+    ))}
     <div style={{ fontSize: 11, color: METRO.sub }}>日本緊急電話：警察 110・救護車／消防 119。租車故障請打 ORIX 078-261-0543（免付費 0120-29-1543）。</div>
   </Sheet>
 );
@@ -5517,7 +5589,7 @@ const returnMode = (st, tripData) => {
   const left = timeToMinutes(retTime) - st.nowMin;
   return { retIdx: ret, retTime, left, spot: spots[ret] };
 };
-const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim, delay }) => {
+const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, openSim, shoppingList, sim, delay, openKeyModal, twdJpyRate, setTwdJpyRate, showToast }) => {
   const [sheet, setSheet] = useState(null); // "sos" | "hotel"
   const rm = returnMode(st, tripData);
   const [fuelDone, setFuelDone] = useState(() => localStorage.getItem("metro_fuel") === "1");
@@ -5593,7 +5665,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
           style={{ width: 48, height: 48, borderRadius: 24, border: `2px solid ${gpsOn ? "#1767B3" : METRO.ink}`, background: gpsOn ? "#EAF2FB" : "#fff", color: gpsOn ? "#1767B3" : METRO.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" fill="currentColor" /><path d="M12 1v3M12 20v3M1 12h3M20 12h3" /></svg>
         </button>
-        <button aria-label="設定" onClick={openSettings}
+        <button aria-label="設定" onClick={() => { haptic(); setSheet("settings"); }}
           style={{ width: 48, height: 48, borderRadius: 24, border: `2px solid ${METRO.line}`, background: "#fff", color: METRO.sub, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
         </button>
@@ -5605,7 +5677,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
           <div style={{ fontSize: 14, fontWeight: 900 }}>旅程路線圖</div>
           <div style={{ fontSize: 11, color: METRO.sub }}>逆時針一圈・點路線看當日站點</div>
         </div>
-        <div style={{ position: "relative", width: "100%", aspectRatio: `${RING.W} / ${RING.H}`, maxHeight: "calc(100dvh - 430px)", minHeight: 300, margin: "0 auto" }}>
+        <div style={{ position: "relative", aspectRatio: `${RING.W} / ${RING.H}`, width: `min(100%, calc((100dvh - ${isPre || isDone ? 340 : 430}px) * ${RING.W} / ${RING.H}))`, minWidth: `calc(300px * ${RING.W} / ${RING.H})`, margin: "0 auto" }}>
           <svg viewBox={`0 0 ${RING.W} ${RING.H}`} preserveAspectRatio="xMidYMid meet" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
             {/* 各日路線 */}
             {dayRanges.map((r, di) => (
@@ -5685,7 +5757,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
 
           {/* 環內：今天 */}
           <button onClick={() => { haptic(); go({ level: "day", day: st.dayIdx }); }}
-            style={{ position: "absolute", left: "29%", top: "30%", width: "42%", height: "42%", borderRadius: 18, background: METRO.tints[st.dayIdx] + "55", border: `2px solid ${METRO.tints[st.dayIdx]}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, textAlign: "left", fontFamily: "inherit", color: METRO.ink }}>
+            style={{ position: "absolute", left: "31.5%", top: "30%", width: "37%", height: "42%", borderRadius: 18, background: "rgba(255,255,255,.96)", border: `2px solid ${METRO.tints[st.dayIdx]}`, zIndex: 1, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, textAlign: "left", fontFamily: "inherit", color: METRO.ink }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ height: 22, padding: "0 7px", borderRadius: 11, background: color, color: METRO.onColor[st.dayIdx], fontFamily: MONO, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center" }}>
                 DAY {st.dayIdx + 1}/{tripData.length}
@@ -5694,9 +5766,9 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
             </span>
             {isPre ? (
               <>
-                <span style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                  <span style={{ fontFamily: MONO, fontSize: 34, fontWeight: 700, lineHeight: "38px" }}>{st.days}</span>
-                  <span style={{ fontSize: 13, fontWeight: 900 }}>天後發車</span>
+                <span style={{ display: "flex", alignItems: "baseline", gap: 4, whiteSpace: "nowrap" }}>
+                  <span style={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, lineHeight: "34px" }}>{st.days}</span>
+                  <span style={{ fontSize: 12, fontWeight: 900 }}>天後發車</span>
                 </span>
                 <span style={{ fontSize: 11, color: "#3D3830" }}>首日：{today.title}</span>
               </>
@@ -5712,7 +5784,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
             ) : (
               <>
                 <span style={{ fontSize: 19, fontWeight: 900, lineHeight: "24px" }}>{today.title}</span>
-                <span style={{ height: 6, borderRadius: 3, background: "#ffffffaa", overflow: "hidden", display: "block" }}>
+                <span style={{ height: 6, borderRadius: 3, background: METRO.tints[st.dayIdx] + "88", overflow: "hidden", display: "block" }}>
                   <span style={{ width: `${Math.round(((isDone ? spots.length : doneCount + 1) / spots.length) * 100)}%`, height: 6, borderRadius: 3, background: color, display: "block" }} />
                 </span>
                 <span style={{ fontSize: 11, color: "#3D3830" }}>第 {st.spotIdx + 1} / {spots.length} 站</span>
@@ -5740,45 +5812,51 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
         </div>
       )}
 
-      {/* 現在 → 下一站 ＋ 順路補給 */}
+      {/* 現在 → 下一站 ＋ 周邊搜：左半看本站，右半直接導航下一站 */}
       <div style={{ display: "flex", gap: 8, margin: "8px 16px 0" }}>
-      <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }}
-        style={{ flex: 1, minWidth: 0, minHeight: 68, background: "#1C1B19", borderRadius: 18, padding: "8px 14px", color: "#fff", display: "flex", alignItems: "center", gap: 10, border: 0, fontFamily: "inherit", textAlign: "left" }}>
-        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 68, background: "#1C1B19", borderRadius: 18, color: "#fff", display: "flex", alignItems: "stretch", overflow: "hidden" }}>
+        <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }}
+          style={{ flex: 1, minWidth: 0, padding: "8px 12px", border: 0, background: "transparent", color: "#fff", fontFamily: "inherit", textAlign: "left", display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <span style={{ fontSize: 11, color: "#FF8A80", fontWeight: 900 }}>
-            {isPre ? "起點" : st.source === "hotel" ? "出發前・在飯店" : st.moving ? "移動中・剛離開" : st.source === "time" ? "推估位置" : st.source === "gps" ? "GPS 定位・我在這" : "我在這"}
+            {isPre ? "起點" : st.source === "hotel" ? "出發前・在飯店" : st.moving ? "移動中・剛離開" : st.source === "time" ? "推估位置" : st.source === "gps" ? "GPS・我在這" : "我在這"}
           </span>
           <span style={{ fontSize: 15, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{metroShort(cur?.name)}</span>
-        </span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFC24D" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 11, color: delay > 0 ? "#FFC24D" : "#C9C3B8" }}>{next ? `下一站・${next.time}${delay > 0 ? `（晚 ${delay} 分）` : delay < 0 ? `（早 ${-delay} 分）` : ""}` : "今日終點"}</span>
-          <span style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{next ? metroShort(next.name) : "休息"}</span>
-        </span>
-      </button>
-      <button aria-label="順路補給" onClick={() => { haptic(); setSheet("sos"); }}
+          <span style={{ fontSize: 10, color: "#C9C3B8" }}>點看本站提醒 ›</span>
+        </button>
+        {next ? (
+          <a href={mapsDir(next.lat, next.lon)} target="_blank" rel="noreferrer" onClick={() => haptic()}
+            style={{ flex: 1, minWidth: 0, padding: "8px 12px 8px 10px", borderLeft: "1px solid rgba(255,255,255,.15)", color: "#fff", textDecoration: "none", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <span style={{ fontSize: 11, color: delay > 0 ? "#FFC24D" : "#C9C3B8" }}>下一站・{next.time}{delay > 0 ? `（晚 ${delay} 分）` : delay < 0 ? `（早 ${-delay} 分）` : ""}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{metroShort(next.name)}</span>
+            <span style={{ fontSize: 10, color: "#FFC24D", fontWeight: 900 }}>📍 點我導航</span>
+          </a>
+        ) : (
+          <div style={{ flex: 1, padding: "8px 12px", borderLeft: "1px solid rgba(255,255,255,.15)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <span style={{ fontSize: 11, color: "#C9C3B8" }}>今日終點</span><span style={{ fontSize: 15, fontWeight: 700 }}>休息</span>
+          </div>
+        )}
+      </div>
+      <button aria-label="周邊搜" onClick={() => { haptic(); setSheet("sos"); }}
         style={{ width: 64, minHeight: 68, borderRadius: 18, border: 0, background: "#E2342F", color: "#fff", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, flexShrink: 0 }}>
-        <span style={{ fontSize: 22, lineHeight: "24px" }}>🩹</span><span style={{ fontSize: 11, fontWeight: 900 }}>補給</span>
+        <span style={{ fontSize: 22, lineHeight: "24px" }}>🔍</span><span style={{ fontSize: 11, fontWeight: 900 }}>周邊搜</span>
       </button>
       </div>
       {sheet === "sos" && <SosSheet close={() => setSheet(null)} />}
       {sheet === "hotel" && <HotelSheet dayIdx={st.dayIdx} tripData={tripData} close={() => setSheet(null)} />}
+      {sheet === "settings" && <SettingsSheet close={() => setSheet(null)} openKeyModal={openKeyModal} twdJpyRate={twdJpyRate} setTwdJpyRate={setTwdJpyRate} showToast={showToast} />}
 
-      {/* 提醒膠囊 */}
-      <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
-        {isPre ? (
-          <>
-            <button onClick={() => { haptic(); go({ level: "station", day: 0, spot: 0 }); }} style={chipStyle("#FFF1E8", "#D9822B", "#6B3A00")}>購物清單 {shopCount} 項</button>
-            <button onClick={() => { haptic(); go({ level: "day", day: 0 }); }} style={chipStyle("#EAF2FB", "#1767B3", "#0F3F70")}>第一天 {spots.length} 站</button>
-          </>
-        ) : (
+      {/* 提醒膠囊（旅途中才有） */}
+      {!isPre && !isDone && <div style={{ display: "flex", gap: 8, padding: "8px 16px 0" }}>
+        {isPre || isDone ? null : (
           <>
             {lunchLeg >= st.spotIdx - 1 && lunchLeg >= 0 && st.nowMin < 16 * 60 && (
               <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: lunchLeg }); }} style={chipStyle("#FFF6E3", "#E89B00", "#5A4300")}>午餐順路</button>
             )}
-            <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }} style={chipStyle("#FFF1E8", "#D9822B", "#6B3A00")}>
-              購物 {matchHere.length ? `這站 ${matchHere.length} 項` : `清單 ${shopCount} 項`}
-            </button>
+            {matchHere.length > 0 && (
+              <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: st.spotIdx }); }} style={chipStyle("#FFF1E8", "#D9822B", "#6B3A00")}>
+                這站可買 {matchHere.length} 項
+              </button>
+            )}
             {dinner.h >= 0 && st.spotIdx <= dinner.h && (
               <button onClick={() => { haptic(); go({ level: "station", day: st.dayIdx, spot: dinner.list.length ? dinner.list[dinner.list.length - 1] : Math.max(0, dinner.h - 1) }); }} style={chipStyle("#F4EFFA", "#7B52AE", "#5B3A8A")}>
                 晚餐採買
@@ -5786,7 +5864,7 @@ const RingHome = ({ tripData, st, now, go, gpsOn, gps, enableGps, openSettings, 
             )}
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 };
@@ -7615,6 +7693,8 @@ ${JSON.stringify(hotelWithDates)}
           scanSpotNearby={scanSpotNearby}
           openSettings={() => setShowMore(true)}
           openKeyModal={setIsKeyModalOpen}
+          twdJpyRate={twdJpyRate}
+          setTwdJpyRate={setTwdJpyRate}
           intelAllRequest={intelAllRequest}
           simRequest={metroSimRequest}
           launchGemini={launchGeminiPriceCheck}
@@ -7850,10 +7930,7 @@ ${JSON.stringify(hotelWithDates)}
               <span className="text-2xl w-9 text-center">🎮</span>
               <span className="flex-1"><span className="block font-black text-gray-800">試玩旅途中畫面</span><span className="block text-xs text-gray-400">出發前預覽「我在這」的樣子</span></span>
             </button>
-            <button onClick={() => { setShowMore(false); setIsKeyModalOpen(true); }} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 text-left min-h-[56px]">
-              <span className="text-2xl w-9 text-center">⚙️</span>
-              <span className="flex-1"><span className="block font-black text-gray-800">設定</span><span className="block text-xs text-gray-400">Gemini 金鑰・主題</span></span>
-            </button>
+            <div className="text-xs text-gray-400 px-2 pt-2">金鑰、匯率、旅伴、備份 → 路線圖右上角 ⚙️</div>
           </div>
         </div>
       )}

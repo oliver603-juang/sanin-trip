@@ -6082,15 +6082,23 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
             </div>
           );
         })()}
-        {/* 左右滑換日 */}
-        <div style={{ display: "flex", gap: 8 }}>
-          {dayIdx > 0 && (
-            <button onClick={() => { haptic(); go({ level: "day", day: dayIdx - 1 }, true); }} style={hdrNav(on)}>‹ 前一天 {String(dayIdx).padStart(2, "0")}</button>
-          )}
-          {dayIdx < tripData.length - 1 && (
-            <button onClick={() => { haptic(); go({ level: "day", day: dayIdx + 1 }, true); }} style={{ ...hdrNav(on), marginLeft: "auto" }}>後一天 {String(dayIdx + 2).padStart(2, "0")} ›</button>
-          )}
-        </div>
+      </div>
+
+      {/* 日期列：6 天各一格，色條＝首頁環狀圖的路線色；捲動時固定在頂部 */}
+      <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#fff", borderBottom: `1px solid ${METRO.line}`, display: "flex", height: 60, boxSizing: "border-box" }}>
+        {tripData.map((d, i) => {
+          const sel = i === dayIdx;
+          const past = st.phase === "done" || (st.phase === "trip" && i < st.dayIdx);
+          const todayI = st.phase === "trip" && i === st.dayIdx;
+          return (
+            <button key={i} onClick={() => { haptic(); if (i !== dayIdx) go({ level: "day", day: i }, true); }}
+              style={{ flex: 1, border: 0, borderBottom: `3px solid ${sel ? METRO.colors[i] : "transparent"}`, background: sel ? METRO.tints[i] + "66" : "transparent", fontFamily: "inherit", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, color: sel ? METRO.colors[i] : past ? "#8C8578" : METRO.ink }}>
+              <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700 }}>{d.date.replace(/\s*\(.*\)/, "")}</span>
+              <span style={{ fontSize: 11, fontWeight: sel || todayI ? 900 : 400 }}>{todayI ? "今天" : `第 ${i + 1} 天`}</span>
+              <span style={{ width: 18, height: 3, borderRadius: 2, background: past && !sel ? METRO.past : METRO.colors[i] }} />
+            </button>
+          );
+        })}
       </div>
 
       <div style={{ padding: "14px 16px 0" }}>

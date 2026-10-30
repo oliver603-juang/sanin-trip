@@ -5093,7 +5093,7 @@ const MetroTab = ({
         setIntelProg({ i: i + 1, n: day.spots.length, name: metroShort(sp.name) });
         try {
           const dep = minutesToTimeStr(timeToMinutes(sp.time) + parseStayDuration(sp.stay));
-          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 800 });
+          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 4096 });
           const o = parseIntel(text); o.at = Date.now(); all[sp.id] = o; saveIntel(all); ok++;
         } catch (e) { if (/QUOTA/.test(e.message)) break; }
         await new Promise((r) => setTimeout(r, 1200));
@@ -5299,11 +5299,83 @@ ${KIND_CHECKS[spotKind(s)]}
 {"status":"營業檢核：該日是否營業、時間、與抵達時段是否衝突（30 字內）","status_level":"ok 或 warn 或 closed","must_know":"現場攻略一句（40 字內）","parking":"停車／交通一句（30 字內）","extra":"其他重要提醒，沒有就空字串（40 字內）"}`;
 };
 const parseIntel = (text) => {
+  const t = (text || "").replace(/```json|```/g, "").trim();
   try {
-    const m = text.match(/\{[\s\S]*\}/);
+    const m = t.match(/\{[\s\S]*\}/);
     if (m) { const o = JSON.parse(m[0]); if (o && (o.status || o.must_know)) return o; }
   } catch (e) {}
-  return { raw: text };
+  // JSON 被截斷或格式不全：逐欄位用正規式撈，撈得到就照卡片顯示
+  const pick = (k) => { const m = t.match(new RegExp('"' + k + '"\\s*:\\s*"([^"]*)')); return m ? m[1] : ""; };
+  const o = { status: pick("status"), status_level: pick("status_level"), must_know: pick("must_know"), parking: pick("parking"), extra: pick("extra") };
+  if (o.status || o.must_know) return o;
+  return { raw: t.replace(/^\{?\s*"[a-z_]+"\s*:\s*"/i, "").replace(/"\s*,\s*"[a-z_]+"\s*:\s*"/gi, "\n• ").replace(/"\s*\}?$/, "") };
+};
+// 🛍️ 這站附近哪裡買：通路類型即開地圖（做法一）＋ AI 聯網找具體店家（做法二）
+const STORE_KEY = "metro_stores";
+const loadStores = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { return {}; } };
+const itemChannels = (it) => (it.channels && it.channels.length ? it.channels : [it.name]);
+const buildStorePrompt = (s, it) => `使用者目前在日本「${s.name}」（座標 ${s.lat},${s.lon}），時間是 2027 年 1 月底冬季。
+想買：「${it.name}」${it.note ? "（" + it.note + "）" : ""}。
+可能有賣的通路類型：${itemChannels(it).join("、")}。
+
+請用 Google 搜尋，找出距離此地點車程 10 分鐘內（或步行可達）、實際有在賣這項商品的 3 家具體實體店鋪。
+注意：小型 BOOKOFF 只賣書和軟體，雪具、玩具類要找 SUPER BAZAAR 或 Hard Off / Hobby Off；百元店只在冬季擺雪球夾等季節品。
+找不到就回傳空陣列，不要編造店名。
+只輸出 JSON 陣列，不加 markdown：
+[{"store":"店名＋分店名（日文，供地圖搜尋）","why":"推薦理由與距離（30 字內）","q":"地圖搜尋用的店名＋分店名"}]`;
+const parseStores = (text) => {
+  const t = (text || "").replace(/```json|```/g, "").trim();
+  try { const m = t.match(/\[[\s\S]*\]/); if (m) { const a = JSON.parse(m[0]); if (Array.isArray(a)) return a.filter((x) => x && x.store); } } catch (e) {}
+  const out = []; const re = /"store"\s*:\s*"([^"]*)"[\s\S]*?"why"\s*:\s*"([^"]*)"(?:[\s\S]*?"q"\s*:\s*"([^"]*)")?/g; let m;
+  while ((m = re.exec(t))) out.push({ store: m[1], why: m[2], q: m[3] || m[1] });
+  return out;
+};
+const StoreFinder = ({ s, it, openKeyModal, showToast, close }) => {
+  const key = s.id + "|" + it.id;
+  const [res, setRes] = useState(() => loadStores()[key] || null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (!localStorage.getItem("gemini_api_key")) { openKeyModal && openKeyModal(true); return; }
+    if (!navigator.onLine) { showToast && showToast("沒有網路，請先用上面的通路按鈕開地圖"); return; }
+    haptic(); setBusy(true);
+    try {
+      const text = await generateGeminiContent(buildStorePrompt(s, it), null, true, { maxTokens: 4096 });
+      const list = parseStores(text);
+      const o = { list, at: Date.now(), raw: list.length ? null : text.slice(0, 300) };
+      const all = loadStores(); all[key] = o; try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch (e) {}
+      setRes(o);
+    } catch (e) {
+      if (/NO_API_KEY|BAD_API_KEY/.test(e.message)) openKeyModal && openKeyModal(true);
+      else showToast && showToast(e.message.startsWith("QUOTA") ? "Gemini 配額用完，請稍後再試" : "搜尋失敗：" + e.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div style={{ background: "#F7F4EE", borderRadius: 14, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12, color: METRO.sub }}>{it.icon} {it.name}・這站附近哪裡買</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {itemChannels(it).map((c) => (
+          <a key={c} href={mapsSearchNear(c, s.lat, s.lon)} target="_blank" rel="noreferrer" onClick={() => haptic()}
+            style={{ minHeight: 36, padding: "0 12px", borderRadius: 18, border: `2px solid ${METRO.line}`, background: "#fff", fontSize: 12, fontWeight: 900, color: METRO.ink, display: "flex", alignItems: "center", textDecoration: "none" }}>🗺️ {c}</a>
+        ))}
+      </div>
+      {res && res.list && res.list.length > 0 && res.list.map((st, i) => (
+        <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>📍 {st.store}</div>
+            <div style={{ fontSize: 11, color: METRO.sub }}>{st.why}</div>
+          </div>
+          <a href={mapsDir(0, 0).replace("destination=0,0", "destination=" + encodeURIComponent(st.q || st.store))} target="_blank" rel="noreferrer" onClick={() => haptic()}
+            style={{ minHeight: 40, padding: "0 10px", borderRadius: 10, background: METRO.ink, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", textDecoration: "none", flexShrink: 0 }}>導航</a>
+        </div>
+      ))}
+      {res && res.list && !res.list.length && <div style={{ fontSize: 12, color: METRO.sub }}>AI 沒找到確定有賣的店{res.raw ? "：" + res.raw : ""}。請用上面的通路按鈕看地圖。</div>}
+      <div style={{ display: "flex", gap: 6 }}>
+        <PillBtn dark onClick={run} style={{ opacity: busy ? 0.6 : 1, minHeight: 40, fontSize: 12 }}>{busy ? "AI 搜尋中…" : res ? "🔄 AI 再找附近賣家" : "🔍 AI 找附近賣家（聯網）"}</PillBtn>
+        <PillBtn onClick={close} style={{ flex: 0, minHeight: 40, fontSize: 12, borderColor: METRO.line }}>收起</PillBtn>
+      </div>
+    </div>
+  );
 };
 const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
   const [intel, setIntel] = useState(() => loadIntel()[s.id] || null);
@@ -5315,7 +5387,7 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
     haptic();
     setBusy(true);
     try {
-      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 800 });
+      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 4096 });
       const o = parseIntel(text);
       o.at = Date.now();
       const all = loadIntel(); all[s.id] = o; saveIntel(all);
@@ -5920,7 +5992,8 @@ const StationPage = ({
 }) => {
   const isActiveDay = sim ? sim.dayIdx === dayIdx : st.phase === "trip" && st.dayIdx === dayIdx;
   const [ticketOpen, setTicketOpen] = useState(false);
-  useEffect(() => setTicketOpen(false), [dayIdx, spotIdx]);
+  const [finderId, setFinderId] = useState(null);
+  useEffect(() => { setTicketOpen(false); setFinderId(null); }, [dayIdx, spotIdx]);
   const copyMapCode = () => {
     haptic();
     try { navigator.clipboard.writeText(s.mapCode.replace(/\s/g, "")); showToast(`MapCode ${s.mapCode} 已複製，可貼到租車導航`); }
@@ -6040,7 +6113,8 @@ const StationPage = ({
 
         <SectionCard color="#E89B00" title="購物提醒" right={matches.length ? "這站可能買得到" : `清單還有 ${unbought.length} 項`}>
           {(matches.length ? [...matches].sort((a, b) => a.bought - b.bought) : unbought.slice(0, 4)).map((it) => (
-            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <React.Fragment key={it.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => { haptic(); toggleBought(it.id); }}
               style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, minHeight: 48, border: 0, background: "transparent", padding: 0, fontFamily: "inherit", textAlign: "left", color: METRO.ink }}>
               <span style={{ width: 24, height: 24, boxSizing: "border-box", borderRadius: 6, border: `2px solid ${it.bought ? "#13804A" : "#C9C3B8"}`, background: it.bought ? "#13804A" : "#fff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{it.bought ? "✓" : ""}</span>
@@ -6048,16 +6122,18 @@ const StationPage = ({
               <span style={{ fontSize: 11, color: METRO.sub, maxWidth: 110, textAlign: "right" }}>{it.note}</span>
             </button>
             {!it.bought && (
-              <a href={mapsSearchNear((it.keywords && it.keywords[0]) || it.name, s.lat, s.lon)} target="_blank" rel="noreferrer" onClick={() => haptic()}
-                style={{ minWidth: 56, minHeight: 40, borderRadius: 10, border: `2px solid ${METRO.line}`, fontSize: 12, fontWeight: 900, color: METRO.ink, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", flexShrink: 0 }}>地圖找</a>
+              <button onClick={() => { haptic(); setFinderId(finderId === it.id ? null : it.id); }}
+                style={{ minWidth: 64, minHeight: 40, borderRadius: 10, border: `2px solid ${finderId === it.id ? METRO.ink : METRO.line}`, background: finderId === it.id ? METRO.ink : "#fff", fontSize: 12, fontWeight: 900, color: finderId === it.id ? "#fff" : METRO.ink, fontFamily: "inherit", flexShrink: 0 }}>哪裡買</button>
             )}
             </div>
+            {finderId === it.id && <StoreFinder key={"f" + it.id} s={s} it={it} openKeyModal={openKeyModal} showToast={showToast} close={() => setFinderId(null)} />}
+            </React.Fragment>
           ))}
           {!matches.length && !unbought.length && <div style={{ fontSize: 13, color: METRO.sub }}>清單都買齊了</div>}
           <div style={{ display: "flex", gap: 6 }}>
             <PillBtn dark onClick={() => { launchGeminiPrice(); showToast("比價指令已複製，到 Gemini 貼上後拍標價"); }}>📸 拍照比價・抓地雷</PillBtn>
           </div>
-          <div style={{ fontSize: 11, color: METRO.sub }}>「地圖找」在 Google 地圖搜這站附近。打勾會存在手機，離線也記得。</div>
+          <div style={{ fontSize: 11, color: METRO.sub }}>「哪裡買」會列出這項商品在日本買得到的通路類型，點了在 Google 地圖搜這站附近；也可用 AI 聯網找具體店家。打勾會存在手機，離線也記得。</div>
         </SectionCard>
 
         {next && (

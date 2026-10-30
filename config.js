@@ -359,16 +359,18 @@ window.Icons = {
 
 // 9. 購物清單
 window.SHOPPING_LIST = [
-  { id: "s1", name: "滑雪盆", category: "toys", keywords: ["BOOKOFF","Hard Off","SUPER BAZAAR","スポーツ","雪"], icon: "🛷", note: "六甲山滑雪場用，BOOKOFF SUPER BAZAAR 買二手", bought: false },
-  { id: "s2", name: "雪球夾", category: "toys", keywords: ["BOOKOFF","Hard Off","SUPER BAZAAR","雪"], icon: "❄️", note: "小孩玩雪必備", bought: false },
-  { id: "s3", name: "Yamatomichi Sacoche 包", category: "outdoor", keywords: ["ハイマートベルク","アウトドア","outdoor"], icon: "🎒", note: "Day6 加古川 ハイマートベルク 戶外用品店", bought: false },
-  { id: "s4", name: "倉敷帆布包", category: "craft", keywords: ["倉敷帆布","Kurashiki Hanpu","帆布"], icon: "👜", note: "日本 70% 帆布產自倉敷，梭織機製作超耐用", bought: false },
-  { id: "s5", name: "NAGASAWA 鋼筆/文具", category: "stationery", keywords: ["NAGASAWA","文具","PenStyle","煉瓦倉庫"], icon: "🖋️", note: "神戶老字號文具店，Kobe INK 物語", bought: false },
-  { id: "s6", name: "柯南周邊", category: "toys", keywords: ["柯南","青山剛昌","北榮"], icon: "🔍", note: "青山剛昌故鄉館 & 柯南小鎮限定", bought: false },
-  { id: "s7", name: "穿山鼠砂雕公仔", category: "toys", keywords: ["砂之美術館","鳥取砂丘","寶可夢","サンド"], icon: "🏜️", note: "鳥取縣觀光大使限定", bought: false },
-  { id: "s8", name: "倉吉絣", category: "craft", keywords: ["倉吉","工芸館","絣","織品"], icon: "🧵", note: "傳統手作織品，門簾/布包", bought: false },
+  { id: "s1", channels: ["ホームセンター","スポーツ用品店","ドン・キホーテ","トイザらス","ブックオフ スーパーバザー"], name: "滑雪盆", category: "toys", keywords: ["BOOKOFF","Hard Off","SUPER BAZAAR","スポーツ","雪"], icon: "🛷", note: "六甲山滑雪場用，BOOKOFF SUPER BAZAAR 買二手", bought: false },
+  { id: "s2", channels: ["ダイソー","3COINS","ドン・キホーテ","西松屋","ホームセンター"], name: "雪球夾", category: "toys", keywords: ["BOOKOFF","Hard Off","SUPER BAZAAR","雪"], icon: "❄️", note: "小孩玩雪必備", bought: false },
+  { id: "s3", channels: ["アウトドアショップ","好日山荘","モンベル"], name: "Yamatomichi Sacoche 包", category: "outdoor", keywords: ["ハイマートベルク","アウトドア","outdoor"], icon: "🎒", note: "Day6 加古川 ハイマートベルク 戶外用品店", bought: false },
+  { id: "s4", channels: ["倉敷帆布","帆布バッグ 専門店"], name: "倉敷帆布包", category: "craft", keywords: ["倉敷帆布","Kurashiki Hanpu","帆布"], icon: "👜", note: "日本 70% 帆布產自倉敷，梭織機製作超耐用", bought: false },
+  { id: "s5", channels: ["NAGASAWA 文具","文房具店","ロフト"], name: "NAGASAWA 鋼筆/文具", category: "stationery", keywords: ["NAGASAWA","文具","PenStyle","煉瓦倉庫"], icon: "🖋️", note: "神戶老字號文具店，Kobe INK 物語", bought: false },
+  { id: "s6", channels: ["名探偵コナン グッズ","アニメイト","コナン探偵社"], name: "柯南周邊", category: "toys", keywords: ["柯南","青山剛昌","北榮"], icon: "🔍", note: "青山剛昌故鄉館 & 柯南小鎮限定", bought: false },
+  { id: "s7", channels: ["砂の美術館 ショップ","鳥取 お土産","ポケモンセンター"], name: "穿山鼠砂雕公仔", category: "toys", keywords: ["砂之美術館","鳥取砂丘","寶可夢","サンド"], icon: "🏜️", note: "鳥取縣觀光大使限定", bought: false },
+  { id: "s8", channels: ["倉吉絣","工芸品 店","民芸品"], name: "倉吉絣", category: "craft", keywords: ["倉吉","工芸館","絣","織品"], icon: "🧵", note: "傳統手作織品，門簾/布包", bought: false },
 ];
 
+
+// ↑ channels = 日本實際買得到該商品的通路類型（日文搜尋詞），「地圖找」用這個在站點附近搜，不用店名備註
 
 // 10. 沿途連鎖店快速搜尋（山陰山陽版）
 window.CHAIN_STORES = [

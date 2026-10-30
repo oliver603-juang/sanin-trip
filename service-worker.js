@@ -1,10 +1,10 @@
-const APP_VERSION = '24'; // 與 index.html 的 ?v= 保持一致
+const APP_VERSION = '25'; // 與 index.html 的 ?v= 保持一致
 const CACHE_NAME = 'trip-2027-sanin-v' + APP_VERSION;
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './app.js?v=24',
-  './config.js?v=24',
+  './app.js?v=25',
+  './config.js?v=25',
   './manifest.json',
   './logo.jpg',
   './icon-192.png',
@@ -15,6 +15,8 @@ const ASSETS_TO_CACHE = [
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
   'https://unpkg.com/@babel/standalone@7.26.9/babel.min.js',
   'https://cdn.tailwindcss.com',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
   'https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js',
   'https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap'

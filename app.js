@@ -583,7 +583,7 @@ const ExpenseModal = ({
                         </div>
                         <div className="flex justify-between items-center mt-0.5">
                           <div className="text-xs text-[#E4C2C1] font-mono font-bold">
-                            NT${item.amount}
+                            {item.currency === "TWD" ? "NT$" : "¥"}{(item.amount || 0).toLocaleString()}
                           </div>
                           {item.timestamp && (
                             <div className="text-[10px] text-gray-400">
@@ -1922,7 +1922,7 @@ const ItineraryTab = ({
                               小計
                             </span>
                             <span className="text-xl font-mono font-black text-indigo-700">
-                              NT${(spotTotal + ticketTotal).toLocaleString()}
+                              ¥{(spotTotal + ticketTotal).toLocaleString()}
                             </span>
                           </div>
                         )}
@@ -3109,7 +3109,7 @@ const InfoTab = () => {
           <button
             onClick={() => {
               const tripId = window.TRIP_ID || "unknown";
-              const keysToExport = ["shopping_list","expenses","trip_spot_tickets","ticket_overrides","start_times","departures","stays","modes","2026_currency","gemini_api_key","themeIndex","user_email"];
+              const keysToExport = Array.from(new Set(["shopping_list","expenses","trip_spot_tickets","ticket_overrides","start_times","departures","stays","modes","2026_currency","gemini_api_key","themeIndex","user_email", ...BACKUP_KEYS]));
               const data = { _meta: { tripId, exportedAt: new Date().toISOString(), device: navigator.userAgent.substring(0,80), version: 1 } };
               keysToExport.forEach(key => { const v = localStorage.getItem(key); if (v !== null) data[key] = v; });
               const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -3137,7 +3137,9 @@ const InfoTab = () => {
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                   try {
-                    const imported = JSON.parse(evt.target.result);
+                    const raw = JSON.parse(evt.target.result);
+                    // 相容兩種格式：資訊頁（_meta＋平鋪）與 ⚙️ 設定（{v, at, data}）
+                    const imported = raw.data ? { _meta: { tripId: window.TRIP_ID || "unknown", exportedAt: raw.at || new Date().toISOString(), device: "設定頁匯出" }, ...raw.data } : raw;
                     const meta = imported._meta;
                     if (!meta) { alert("❌ 無效的備份檔案（缺少 _meta）"); return; }
 
@@ -5387,7 +5389,7 @@ const StoreFinder = ({ s, it, openKeyModal, showToast, close }) => {
             <div style={{ fontSize: 13, fontWeight: 900 }}>📍 {st.store}</div>
             <div style={{ fontSize: 11, color: METRO.sub }}>{st.why}</div>
           </div>
-          <a href={mapsDir(0, 0).replace("destination=0,0", "destination=" + encodeURIComponent(st.q || st.store))} target="_blank" rel="noreferrer" onClick={() => haptic()}
+          <a href={"https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(st.q || st.store) + "&travelmode=driving&dir_action=navigate"} target="_blank" rel="noreferrer" onClick={() => haptic()}
             style={{ minHeight: 40, padding: "0 10px", borderRadius: 10, background: METRO.ink, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center", textDecoration: "none", flexShrink: 0 }}>導航</a>
         </div>
       ))}
@@ -6104,9 +6106,14 @@ const InsertSheet = ({ day, dayIdx, spots, st, organize, close, openKeyModal, sh
     }
     return out.sort((x, y) => x.extra - y.extra).slice(0, 3);
   }, [geo, spots, cur]);
+  // 貼上「34.8339, 134.5863」這種座標就直接定位，不用 AI
+  useEffect(() => {
+    const m = name.match(/(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})/);
+    if (m) setGeo({ lat: +m[1], lon: +m[2], label: "貼上的座標" });
+  }, [name]);
   const locate = async () => {
     if (!name.trim()) return;
-    if (!localStorage.getItem("gemini_api_key")) { openKeyModal(true); return; }
+    if (!localStorage.getItem("gemini_api_key")) { showToast("沒有 Gemini 金鑰：可直接貼座標，或先到 ⚙️ 設定"); openKeyModal(true); return; }
     setBusy(true);
     try {
       const anchor = defaultAfter || spots[0];
@@ -6155,7 +6162,7 @@ const InsertSheet = ({ day, dayIdx, spots, st, organize, close, openKeyModal, sh
           )) : <span style={{ fontSize: 11, color: METRO.sub }}>需要座標</span>}
         </span>
       </button>
-      <button onClick={() => setMode("manual")} style={opt(mode === "manual")}>
+      <button onClick={() => { setMode("manual"); if (!afterSid && defaultAfter) setAfterSid(defaultAfter.sid || defaultAfter.id); }} style={opt(mode === "manual")}>
         <span style={{ width: 22, height: 22, borderRadius: 11, background: mode === "manual" ? METRO.ink : "#fff", border: `2px solid ${mode === "manual" ? METRO.ink : "#C9C3B8"}`, color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{mode === "manual" ? "✓" : ""}</span>
         <span style={{ display: "flex", flexDirection: "column", flex: 1 }}>
           <span style={{ fontSize: 13, fontWeight: 900 }}>自己選位置</span>
@@ -8002,13 +8009,18 @@ ${JSON.stringify(hotelWithDates)}
       }
     }
 
+    // Google 地圖網址最多 9 個中繼站：全程只帶 5 間飯店當中繼；單日超過 9 站就等距抽樣
+    let mids = points.slice(1, -1);
+    if (selectedDay === "all") {
+      mids = (window.HOTEL_INFO || []).filter((h) => h.lat && h.lon).map((h) => `${h.lat},${h.lon}`);
+    } else if (mids.length > 9) {
+      const step = mids.length / 9;
+      mids = Array.from({ length: 9 }, (_, i) => mids[Math.floor(i * step)]);
+    }
     if (points.length > 0) {
-      // [Fixed] 標準 Google Maps Dir 連結
       const url = `https://www.google.com/maps/dir/?api=1&origin=${
         points[0]
-      }&destination=${points[points.length - 1]}&waypoints=${points
-        .slice(1, -1)
-        .join("|")}&travelmode=driving`;
+      }&destination=${points[points.length - 1]}&waypoints=${mids.join("|")}&travelmode=driving`;
       window.open(url, "_blank");
     } else {
       alert("目前行程無有效的座標點");

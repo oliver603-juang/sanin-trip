@@ -4826,9 +4826,19 @@ const launchGemini = async (prompt) => {
   }
   return copied;
 };
+// 不帶 origin，Google 地圖用當下 GPS 當起點；dir_action=navigate 直接進導航模式（不停在路線預覽）
 const mapsDir = (lat, lon, via) =>
   "https://www.google.com/maps/dir/?api=1&destination=" + lat + "," + lon +
-  (via ? "&waypoints=" + via.lat + "," + via.lon : "") + "&travelmode=driving";
+  (via ? "&waypoints=" + via.lat + "," + via.lon : "") + "&travelmode=driving&dir_action=navigate";
+// 方位角（不靠手機羅盤，純幾何）：出發前先知道下一站在哪個方向
+const bearingTo = (a, b) => {
+  const toR = (d) => (d * Math.PI) / 180;
+  const dL = toR(b.lon - a.lon), la1 = toR(a.lat), la2 = toR(b.lat);
+  const y = Math.sin(dL) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dL);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+};
+const bearingName = (deg) => ["北", "東北", "東", "東南", "南", "西南", "西", "西北"][Math.round(deg / 45) % 8];
+const isDepartureTrap = (name) => isHotel(name) || /停車場|駐車場|[Pp]arking|租車|取車|機場/.test(name);
 const mapsSearchNear = (q, lat, lon) =>
   "https://www.google.com/maps/search/" + encodeURIComponent(q) + "/@" + lat + "," + lon + ",14z";
 
@@ -6359,11 +6369,17 @@ const StationPage = ({
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                 <div style={{ fontSize: 16, fontWeight: 900 }}>{next.name}</div>
                 <div style={{ fontSize: 12, color: "#3D3830" }}>車程約 {s.nextStop?.driveTime.replace("m", " 分")}・{s.nextStop?.distance}・預計 {next.time} 到</div>
+                <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700 }}>🧭 下一站在本站的{bearingName(bearingTo(s, next))}方（{Math.round(bearingTo(s, next))}°）</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <PillBtn dark href={mapsDir(next.lat, next.lon)}>導航到下一站</PillBtn>
             </div>
+            {isDepartureTrap(s.name) && (
+              <div style={{ background: "#EAF2FB", borderRadius: 12, padding: "8px 10px", fontSize: 12, color: "#0F3F70", lineHeight: "18px" }}>
+                🚗 <b>出停車場口訣：</b>還在車道裡就先按導航，直線滑行 5–10 公尺等藍色箭頭轉正，再開上大馬路。靜止時 Google 地圖只能靠車內失準的羅盤，起步後才改用 GPS 軌跡判斷車頭。上面的方位可先對照出口該往哪邊轉。
+              </div>
+            )}
             {showLunch && (
               <div style={{ background: "#FFF6E3", border: "2px dashed #E89B00", borderRadius: 14, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ fontSize: 13, fontWeight: 900, color: "#5A4300" }}>午餐順路（這段移動在 12:00–16:00）</div>

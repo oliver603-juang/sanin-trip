@@ -6185,6 +6185,113 @@ const InsertSheet = ({ day, dayIdx, spots, st, organize, close, openKeyModal, sh
   );
 };
 
+// 整理模式清單：卡片化 ＋ ▲▼ ＋ 略過 ＋ 拖曳把手（⠿）
+const OrganizeList = ({ day, dayIdx, spots, cur, isToday, isPastDay, organize, showToast, color }) => {
+  const [drag, setDrag] = useState(null); // { sid, fromIdx, y, overIdx }
+  const [flash, setFlash] = useState(null); // { sid, msg }
+  const refs = useRef({});
+  const listRef = useRef(null);
+  const sidOf = (x) => x.sid || x.id;
+  const lockedOf = (x, i) => (isToday && i <= cur) || isPastDay || isHotel(x.name) || /還車|機場/.test(x.name);
+  const firstMovable = spots.findIndex((x, i) => !lockedOf(x, i));
+  const lastMovable = (() => { let k = -1; spots.forEach((x, i) => { if (!lockedOf(x, i)) k = i; }); return k; })();
+  const announce = (x, newIdx) => { setFlash({ sid: sidOf(x), msg: `${metroShort(x.name)} 已移到第 ${newIdx + 1} 站` }); setTimeout(() => setFlash(null), 1600); };
+  const moveBy = (x, i, dir) => {
+    const j = i + dir;
+    if (j < firstMovable || j > lastMovable) { haptic(30); showToast(dir < 0 ? "已經是最前面可移動的位置" : "已經在最後（飯店固定在最後）"); return; }
+    haptic(); organize.moveSpot(day.dayId, sidOf(x), dir); announce(x, j);
+  };
+  // 拖曳
+  const overIndexFromY = (y) => {
+    let best = -1;
+    for (let i = firstMovable; i <= lastMovable; i++) {
+      const el = refs.current[sidOf(spots[i])]; if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (y < r.top + r.height / 2) { best = i; break; }
+      best = i + 1;
+    }
+    return Math.max(firstMovable, Math.min(lastMovable + 1, best));
+  };
+  const onHandleDown = (e, x, i) => {
+    if (lockedOf(x, i)) return;
+    e.preventDefault(); e.stopPropagation();
+    haptic(20);
+    setDrag({ sid: sidOf(x), fromIdx: i, y: e.clientY, overIdx: i });
+  };
+  const onHandleMove = (e) => {
+    if (!dragRef.current) return;
+    const y = e.clientY;
+    // 靠近上下緣自動捲動
+    const vh = window.innerHeight;
+    if (y < 110) window.scrollBy(0, -12); else if (y > vh - 110) window.scrollBy(0, 12);
+    setDrag((d) => d && { ...d, y, overIdx: overIndexFromY(y) });
+  };
+  const onHandleUp = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    setDrag(null);
+    let target = d.overIdx;
+    if (target === d.fromIdx || target === d.fromIdx + 1) return; // 沒動
+    const before = target <= lastMovable ? spots[target] : null;
+    organize.moveSpotTo(day.dayId, d.sid, before ? sidOf(before) : null);
+    const newIdx = target > d.fromIdx ? target - 1 : target;
+    haptic(20); announce(spots[d.fromIdx], newIdx);
+  };
+  // 拖曳中改聽 window 的事件（不靠 pointer capture，手機與滑鼠都穩）
+  const dragRef = useRef(null); dragRef.current = drag;
+  useEffect(() => {
+    if (!drag) return;
+    const mv = (e) => { e.preventDefault(); onHandleMove(e); };
+    const up = (e) => { onHandleUp(e); };
+    const cancel = () => setDrag(null);
+    window.addEventListener("pointermove", mv, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    document.body.style.userSelect = "none";
+    return () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); document.body.style.userSelect = ""; };
+  }, [drag]);
+  const btn = { width: 44, height: 30, borderRadius: 8, border: `1px solid ${METRO.line}`, background: "#fff", fontFamily: "inherit", fontSize: 14, padding: 0, color: METRO.ink };
+  return (
+    <div ref={listRef} style={{ display: "flex", flexDirection: "column", gap: 8, touchAction: drag ? "none" : "auto" }}>
+      {spots.map((x, i) => {
+        const locked = lockedOf(x, i);
+        const sid = sidOf(x);
+        const isDragging = drag && drag.sid === sid;
+        const showLineBefore = drag && !isDragging && drag.overIdx === i && i >= firstMovable;
+        const isFlash = flash && flash.sid === sid;
+        return (
+          <React.Fragment key={sid}>
+            {showLineBefore && <div style={{ height: 4, borderRadius: 2, background: color, margin: "-4px 0" }} />}
+            {isFlash && <div style={{ fontSize: 11, color: "#5A4300", background: "#FFE08A", borderRadius: 8, padding: "4px 10px", alignSelf: "flex-start" }}>↕ {flash.msg}</div>}
+            <div ref={(el) => { refs.current[sid] = el; }}
+              style={{ background: locked ? "#F7F4EE" : isFlash ? "#FFF6E3" : "#fff", border: locked ? `2px dashed ${METRO.past}` : `2px solid ${isFlash ? "#E89B00" : isDragging ? color : METRO.line}`, borderRadius: 14, padding: "10px 10px 10px 12px", display: "flex", alignItems: "center", gap: 10, opacity: isDragging ? 0.45 : locked ? 0.8 : 1, transform: isDragging ? "scale(1.02)" : "none", boxShadow: isDragging ? "0 6px 16px rgba(0,0,0,.2)" : "none", transition: "background .3s, border-color .3s" }}>
+              {isHotel(x.name) ? <span style={capsule(METRO.ink)} /> : (
+                <span style={{ width: 26, height: 26, borderRadius: 13, background: locked ? METRO.past : color, color: "#fff", fontFamily: MONO, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.name}</div>
+                <div style={{ fontSize: 11, color: METRO.sub }}>{locked ? ("🔒 " + (isHotel(x.name) ? "住宿固定在最後" : /還車|機場/.test(x.name) ? "固定" : "已到達，不能移動")) : `停留 ${x.stay}`}</div>
+              </div>
+              {!locked && (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => moveBy(x, i, -1)} style={{ ...btn, opacity: i <= firstMovable ? 0.35 : 1 }}>▲</button>
+                    <button onClick={() => moveBy(x, i, 1)} style={{ ...btn, opacity: i >= lastMovable ? 0.35 : 1 }}>▼</button>
+                  </div>
+                  <button onClick={() => { haptic(); organize.toggleSkip(sid); showToast("已略過，底部可還原"); }} style={{ width: 44, height: 64, borderRadius: 8, border: "1px solid #E2342F", background: "#fff", color: "#E2342F", fontSize: 12, fontWeight: 900, fontFamily: "inherit", padding: 0, flexShrink: 0 }}>略過</button>
+                  <div onPointerDown={(e) => onHandleDown(e, x, i)}
+                    style={{ width: 28, height: 64, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "#8C8578", touchAction: "none", cursor: "grab", flexShrink: 0, userSelect: "none" }}>⠿</div>
+                </>
+              )}
+            </div>
+          </React.Fragment>
+        );
+      })}
+      {drag && drag.overIdx === lastMovable + 1 && <div style={{ height: 4, borderRadius: 2, background: color, margin: "-4px 0" }} />}
+    </div>
+  );
+};
+
 const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay, edit, organize, openKeyModal, showToast }) => {
   const [organizing, setOrganizing] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
@@ -6263,18 +6370,19 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
 
       {organizing && (
         <div style={{ position: "sticky", top: 60, zIndex: 31, background: "#FFE08A", color: "#5A4300", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 900 }}>
-          <span style={{ flex: 1 }}>整理模式：上下移、略過</span>
+          <span style={{ flex: 1 }}>整理模式：按住 ⠿ 拖曳、▲▼、略過</span>
           <button onClick={() => { haptic(); setOrganizing(false); }} style={{ minHeight: 36, padding: "0 14px", borderRadius: 18, border: 0, background: "#5A4300", color: "#fff", fontFamily: "inherit", fontWeight: 900 }}>完成</button>
         </div>
       )}
       <div style={{ padding: "14px 16px 0" }}>
-        {prevHotel && (
+        {prevHotel && !organizing && (
           <StopRow time="" lineTop={null} lineBottom={METRO.past} dot={<span style={capsule("#8C8578")} />}>
             <div style={{ fontSize: 14, color: "#6F695F" }}>{prevHotel.name}</div>
             <div style={{ fontSize: 11, color: "#6F695F" }}>起點・由 {String(dayIdx).padStart(2, "0")} 轉乘</div>
           </StopRow>
         )}
-        {spots.map((s, i) => {
+        {organizing && <OrganizeList day={day} dayIdx={dayIdx} spots={spots} cur={cur} isToday={isToday} isPastDay={isPastDay} organize={organize} showToast={showToast} color={color} />}
+        {!organizing && spots.map((s, i) => {
           const done = isPastDay || (isToday && i < cur);
           const here = i === cur;
           const minor = MINOR_RE.test(s.name);
@@ -6292,24 +6400,8 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
                 : s.custom ? <span style={{ fontSize: 16, lineHeight: "18px" }}>⭐</span>
                 : minor ? <span style={{ width: 8, height: 8, borderRadius: 4, background: done ? tint : "#fff", border: done ? 0 : `2px solid ${color}` }} />
                 : <span style={{ width: 18, height: 18, boxSizing: "border-box", borderRadius: 9, background: done ? tint : "#fff", border: done ? 0 : `4px solid ${color}` }} />}
-              onClick={() => { if (organizing) return; haptic(); go({ level: "station", day: dayIdx, spot: i }); }}
-              onPointerDown={pressStart} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}>
-              {organizing && (() => {
-                const locked = (isToday && i <= cur) || isPastDay || hotel || /還車|機場/.test(s.name);
-                const allSids = organize.composeDay(window.RAW_KML_DATA[dayIdx]).map((x) => x.sid);
-                const pos = allSids.indexOf(s.sid || s.id);
-                return (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }} onClick={(e) => e.stopPropagation()}>
-                    {locked ? <span style={{ fontSize: 11, color: METRO.sub }}>🔒 {hotel ? "住宿固定在最後" : isPastDay || (isToday && i <= cur) ? "已到達，不能移動" : "固定"}</span> : (
-                      <>
-                        <button disabled={pos <= Math.max(0, cur + 1)} onClick={() => { haptic(); organize.moveSpot(day.dayId, s.sid || s.id, -1); }} style={orgBtn(pos <= Math.max(0, cur + 1))}>▲ 上移</button>
-                        <button onClick={() => { haptic(); if (!organize.moveSpot(day.dayId, s.sid || s.id, 1)) showToast("已經在最後"); }} style={orgBtn(false)}>▼ 下移</button>
-                        <button onClick={() => { haptic(); organize.toggleSkip(s.sid || s.id); showToast("已略過，底部可還原"); }} style={{ ...orgBtn(false), borderColor: "#E2342F", color: "#E2342F" }}>略過</button>
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
+              onClick={() => { haptic(); go({ level: "station", day: dayIdx, spot: i }); }}
+              onPointerDown={pressStart} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd} onPointerMove={(e) => { if (e.movementY && Math.abs(e.movementY) > 2) pressEnd(); }}>
               {here ? (
                 <div style={{ background: "#fff", border: `2px solid ${METRO.here}`, borderRadius: 16, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -6390,7 +6482,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
           );
         })()}
         <div style={{ marginTop: 10, fontSize: 11, color: METRO.sub, lineHeight: "18px" }}>
-          {organizing ? "整理模式：▲▼ 移動、略過、拖不動的站有 🔒。按右上「完成」結束。" : "長按任一站 0.3 秒進入整理模式（上下移、略過）；右下角 ＋ 加一站。"}
+          {organizing ? "整理模式：按住 ⠿ 上下拖、或用 ▲▼ 一格一格移；略過會保留記帳。🔒 的站不能動。按「完成」後重算時間。" : "長按任一站 0.3 秒進入整理模式（拖曳、上下移、略過）；右下角 ＋ 加一站。"}
           時間依「出發時間＋各站停留＋車程」推算；點標題的出發時間可改。按「出發往下一站」或 GPS 進入站點 300 m 內，我的位置就前進一站。各站停留、門票在站點頁可改。
         </div>
       </div>
@@ -7198,6 +7290,15 @@ function App() {
     return true;
   };
   const toggleSkip = (sid) => setSkipMap((p) => { const n = { ...p }; if (n[sid]) delete n[sid]; else n[sid] = true; return n; });
+  // 拖曳：把 sid 移到 beforeSid 之前（beforeSid 為 null＝移到最後一個可移動位置，即飯店之前）
+  const moveSpotTo = (dayId, sid, beforeSid) => {
+    const day = window.RAW_KML_DATA.find((d) => d.dayId === dayId);
+    const sids = composeDay(day).map((x) => x.sid).filter((x) => x !== sid);
+    let j = beforeSid ? sids.indexOf(beforeSid) : -1;
+    if (j < 0) { const all = composeDay(day); const h = all.findIndex((x) => isHotel(x.name) && x.sid !== sid); j = h >= 0 ? sids.indexOf(all[h].sid) : sids.length; }
+    sids.splice(j, 0, sid);
+    setDayOrder(dayId, sids);
+  };
   const insertSpotAt = (dayId, spot, afterSid) => {
     const day = window.RAW_KML_DATA.find((d) => d.dayId === dayId);
     const sids = composeDay(day).map((x) => x.sid);
@@ -8173,7 +8274,7 @@ ${JSON.stringify(hotelWithDates)}
           radarRequest={radarRequest}
           addCustomSpot={addCustomSpot}
           removeCustomSpot={removeCustomSpot}
-          organize={{ composeDay, moveSpot, toggleSkip, insertSpotAt, skipMap }}
+          organize={{ composeDay, moveSpot, moveSpotTo, toggleSkip, insertSpotAt, skipMap }}
           addShoppingItem={addShoppingItem}
           intelAllRequest={intelAllRequest}
           simRequest={metroSimRequest}

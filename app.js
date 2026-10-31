@@ -220,12 +220,16 @@ const generateGeminiContent = async (
     }
 
     for (let i = 0; i < 3; i++) {
+      // 單次請求最多等 opts.timeoutMs（預設 45 秒），避免手機網路卡住時整個流程無限等待
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || 45000);
       try {
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-        });
+          signal: ctrl.signal,
+        }).finally(() => clearTimeout(timer));
         if (response.ok) {
           if (model !== GEMINI_MODEL) {
             GEMINI_MODEL = model;
@@ -260,6 +264,12 @@ const generateGeminiContent = async (
         throw new Error(`API Error: ${code}`);
       } catch (error) {
         if (error.message === "NO_API_KEY" || error.message === "BAD_API_KEY" || error.message.startsWith("QUOTA_EXHAUSTED")) throw error;
+        if (error.name === "AbortError") {
+          // 逾時多半是網路問題，不是模型問題：重試一次就放棄，不再換模型空等
+          lastErr = new Error("TIMEOUT: 等太久沒回應（可能訊號不好），請稍後再試");
+          if (i >= 1) throw lastErr;
+          continue;
+        }
         lastErr = error;
         if (i === 2) break;
         await new Promise((r) => setTimeout(r, 1000));
@@ -5099,33 +5109,6 @@ const MetroTab = ({
   });
   const [simOpen, setSimOpen] = useState(false);
   useEffect(() => { if (simRequest) setSimOpen(true); }, [simRequest]);
-  // 更多 › AI 查核今天所有站：逐站查、每站間隔 1.2 秒、失敗跳過
-  const [intelProg, setIntelProg] = useState(null);
-  useEffect(() => {
-    if (!intelAllRequest) return;
-    if (!localStorage.getItem("gemini_api_key")) { openKeyModal && openKeyModal(true); return; }
-    const di = sim ? sim.dayIdx : st.phase === "trip" ? st.dayIdx : 0;
-    const day = tripData[di];
-    let cancelled = false;
-    (async () => {
-      const all = loadIntel();
-      let ok = 0;
-      for (let i = 0; i < day.spots.length; i++) {
-        if (cancelled) break;
-        const sp = day.spots[i];
-        setIntelProg({ i: i + 1, n: day.spots.length, name: metroShort(sp.name) });
-        try {
-          const dep = minutesToTimeStr(timeToMinutes(sp.time) + parseStayDuration(sp.stay));
-          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 4096 });
-          const o = parseIntel(text); o.at = Date.now(); all[sp.id] = o; saveIntel(all); ok++;
-        } catch (e) { if (/QUOTA/.test(e.message)) break; }
-        await new Promise((r) => setTimeout(r, 1200));
-      }
-      setIntelProg(null);
-      showToast(`AI 查核完成：${ok}／${day.spots.length} 站（${day.title}）`);
-    })();
-    return () => { cancelled = true; };
-  }, [intelAllRequest]);
   const [gps, setGps] = useState(null);
   const [gpsOn, setGpsOn] = useState(() => localStorage.getItem("metro_gps") === "1");
   const now = useMetroClock(sim);
@@ -5234,11 +5217,6 @@ const MetroTab = ({
           depart={depart} openExpenseModal={openExpenseModal} openChainFinder={openChainFinder}
           showToast={showToast} winterRoutes={winterRoutes} launchGemini={launchGeminiPrice} openKeyModal={openKeyModal} removeCustomSpot={removeCustomSpot} />
       )}
-      {intelProg && (
-        <div style={{ position: "fixed", left: 16, right: 16, top: "calc(12px + env(safe-area-inset-top))", zIndex: 90, background: "#1767B3", color: "#fff", borderRadius: 14, padding: "10px 14px", fontSize: 13, fontWeight: 700, boxShadow: "0 6px 20px rgba(0,0,0,.3)" }}>
-          ✨ AI 查核中 {intelProg.i}／{intelProg.n}：{intelProg.name}
-        </div>
-      )}
       {toast && (
         <div role="status" style={{ position: "fixed", left: 16, right: 16, bottom: "calc(100px + env(safe-area-inset-bottom))", zIndex: 90, background: "#1C1B19", color: "#fff", borderRadius: 14, padding: "10px 12px 10px 16px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 6px 20px rgba(0,0,0,.3)", fontSize: 13, fontWeight: 700 }}>
           <span style={{ flex: 1 }}>{toast.text}</span>
@@ -5334,6 +5312,70 @@ const parseIntel = (text) => {
   if (o.status || o.must_know) return o;
   return { raw: t.replace(/^\{?\s*"[a-z_]+"\s*:\s*"/i, "").replace(/"\s*,\s*"[a-z_]+"\s*:\s*"/gi, "\n• ").replace(/"\s*\}?$/, "") };
 };
+// ✨ AI 查核今天所有站：進度／結果面板（App 層，切分頁不會消失；可縮成小膠囊）
+const IntelJobSheet = ({ job, onMin, onCancel, onClose, onOpen }) => {
+  const n = job.items.length;
+  const doneN = job.items.filter((x) => /ok|warn|closed|err/.test(x.state)).length;
+  const warnN = job.items.filter((x) => x.state === "warn").length;
+  const closedN = job.items.filter((x) => x.state === "closed").length;
+  const errN = job.items.filter((x) => x.state === "err").length;
+  const cur = job.items.find((x) => x.state === "run") || job.items.find((x) => x.state === "wait");
+  const [tick, setTick] = useState(0);
+  useEffect(() => { if (job.done) return; const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, [job.done]);
+  const elapsed = Math.round((Date.now() - job.startedAt) / 1000);
+  const ICON = { wait: "○", run: "⏳", ok: "✅", warn: "⚠️", closed: "⛔", err: "✗" };
+  const COLOR = { wait: "#B8B2A6", run: "#1767B3", ok: "#13804A", warn: "#B45309", closed: "#C0392B", err: "#8C8578" };
+  if (job.min) {
+    return (
+      <button onClick={() => onMin(false)} style={{ position: "fixed", left: 16, right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 95, background: job.done ? "#13804A" : "#1767B3", color: "#fff", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, border: 0, fontFamily: "inherit", boxShadow: "0 6px 20px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ flex: 1, textAlign: "left" }}>{job.done ? `✅ AI 查核完成 ${doneN - errN}／${n} 站` : `✨ AI 查核中 ${doneN}／${n}：${cur ? cur.name : "…"}`}</span>
+        <span style={{ opacity: .8 }}>展開 ▴</span>
+      </button>
+    );
+  }
+  const summary = job.done
+    ? (job.stopReason === "quota" ? "Gemini 配額用完，之後再查剩下的站" : job.stopReason === "key" ? "金鑰無效，請到設定重新貼上" : job.stopReason === "cancel" ? `已取消，完成 ${doneN - errN}／${n} 站` : `完成 ${doneN - errN}／${n} 站${closedN ? `・${closedN} 站當天可能休館` : ""}${warnN ? `・${warnN} 站有提醒` : ""}${errN ? `・${errN} 站失敗` : ""}`)
+    : `每站約 3–8 秒，全部約 ${Math.max(1, Math.round(n * 6 / 60))} 分鐘・已用 ${elapsed} 秒`;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "flex-end" }} onClick={() => onMin(true)}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: "#fff", borderRadius: "22px 22px 0 0", maxHeight: "78vh", display: "flex", flexDirection: "column", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${METRO.line}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>{job.done ? "✅ AI 查核結果" : "✨ AI 查核中"}・{job.date}</div>
+              <div style={{ fontSize: 12, color: METRO.sub, marginTop: 2 }}>{summary}</div>
+            </div>
+            <button onClick={() => onMin(true)} style={{ border: `1px solid ${METRO.line}`, background: "#fff", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 800, fontFamily: "inherit" }}>縮小</button>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: "#EEEAE0", marginTop: 10, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${Math.round((doneN / Math.max(1, n)) * 100)}%`, background: job.done ? "#13804A" : "#1767B3", transition: "width .4s" }} />
+          </div>
+        </div>
+        <div style={{ overflowY: "auto", padding: "6px 8px" }}>
+          {job.items.map((x, i) => (
+            <button key={x.id || i} onClick={() => /ok|warn|closed/.test(x.state) && onOpen(i)} style={{ width: "100%", display: "flex", gap: 10, alignItems: "flex-start", textAlign: "left", background: x.state === "run" ? "#EAF2FB" : "transparent", border: 0, borderRadius: 12, padding: "9px 8px", fontFamily: "inherit" }}>
+              <span style={{ width: 22, textAlign: "center", fontSize: 15, color: COLOR[x.state], flexShrink: 0 }}>{ICON[x.state]}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: x.state === "wait" ? METRO.sub : METRO.ink }}>{i + 1}. {x.name}</span>
+                {x.status && <span style={{ display: "block", fontSize: 12, color: x.state === "closed" ? "#C0392B" : x.state === "warn" ? "#B45309" : METRO.sub, marginTop: 2, lineHeight: 1.35 }}>{x.status}</span>}
+                {x.state === "run" && <span style={{ display: "block", fontSize: 12, color: "#1767B3", marginTop: 2 }}>查詢中…（聯網搜尋官網）</span>}
+              </span>
+              {/ok|warn|closed/.test(x.state) && <span style={{ fontSize: 12, color: METRO.sub, flexShrink: 0, alignSelf: "center" }}>看站 ›</span>}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: "10px 16px 12px", borderTop: `1px solid ${METRO.line}`, display: "flex", gap: 10 }}>
+          {job.done
+            ? <button onClick={onClose} style={{ flex: 1, background: METRO.ink, color: "#fff", border: 0, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 900, fontFamily: "inherit" }}>完成（結果已存到各站）</button>
+            : <>
+                <button onClick={onCancel} style={{ flex: 1, background: "#fff", color: "#C0392B", border: "1px solid #C0392B", borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 900, fontFamily: "inherit" }}>停止</button>
+                <button onClick={() => onMin(true)} style={{ flex: 1, background: "#1767B3", color: "#fff", border: 0, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 900, fontFamily: "inherit" }}>背景執行，先去用 App</button>
+              </>}
+        </div>
+      </div>
+    </div>
+  );
+};
 // 🛍️ 這站附近哪裡買：通路類型即開地圖（做法一）＋ AI 聯網找具體店家（做法二）
 const STORE_KEY = "metro_stores";
 const loadStores = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { return {}; } };
@@ -5363,7 +5405,7 @@ const StoreFinder = ({ s, it, openKeyModal, showToast, close }) => {
     if (!navigator.onLine) { showToast && showToast("沒有網路，請先用上面的通路按鈕開地圖"); return; }
     haptic(); setBusy(true);
     try {
-      const text = await generateGeminiContent(buildStorePrompt(s, it), null, true, { maxTokens: 4096 });
+      const text = await generateGeminiContent(buildStorePrompt(s, it), null, true, { maxTokens: 4096, timeoutMs: 60000 });
       const list = parseStores(text);
       const o = { list, at: Date.now(), raw: list.length ? null : text.slice(0, 300) };
       const all = loadStores(); all[key] = o; try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch (e) {}
@@ -5411,7 +5453,7 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
     haptic();
     setBusy(true);
     try {
-      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 4096 });
+      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 4096, noThinking: true, timeoutMs: 40000 });
       const o = parseIntel(text);
       o.at = Date.now();
       const all = loadIntel(); all[s.id] = o; saveIntel(all);
@@ -5444,7 +5486,7 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
       {intel && intel.raw && <div style={{ fontSize: 13, whiteSpace: "pre-wrap", lineHeight: "20px" }}>{intel.raw}</div>}
       {!intel && <div style={{ fontSize: 12, color: METRO.sub }}>用 Gemini 聯網查這站當天是否營業、公休、冬季時間、停車與現場攻略。現在查抓固定規則，出發前一週再按一次更新臨時公告。</div>}
       <PillBtn dark={!intel} onClick={run} style={{ opacity: busy ? 0.6 : 1 }}>
-        {busy ? "查核中…（約 10–20 秒）" : intel ? "🔄 重新查核 2027/1 營業與避雷" : "✨ AI 查核 2027/1 營業與避雷"}
+        {busy ? "查核中…（約 3–8 秒）" : intel ? "🔄 重新查核 2027/1 營業與避雷" : "✨ AI 查核 2027/1 營業與避雷"}
       </PillBtn>
       {intel && <div style={{ fontSize: 11, color: METRO.sub }}>AI 聯網查核仍可能有誤，出發前請以官網為準。</div>}
     </SectionCard>
@@ -5490,7 +5532,7 @@ const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, a
     if (!navigator.onLine) { showToast("沒有網路"); return; }
     haptic(); setBusy(true);
     try {
-      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000 });
+      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000, timeoutMs: 75000 });
       const list = parseEvents(text);
       const next = { ...all, [day.dayId]: { list, at: Date.now(), raw: list.length ? null : text.slice(0, 200) } };
       setAll(next); try { localStorage.setItem(EVENTS_KEY, JSON.stringify(next)); } catch (e) {}
@@ -8013,7 +8055,7 @@ ${JSON.stringify(spotList)}
   "spot_id": { "adult": 200, "child": 100 },
   ...
 }`;
-        const result = await generateGeminiContent(prompt, null, true);
+        const result = await generateGeminiContent(prompt, null, true, { timeoutMs: 75000 });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const estimates = JSON.parse(jsonMatch[0]);
@@ -8057,7 +8099,7 @@ ${JSON.stringify(hotelWithDates)}
   "spot_id": { "adult": 3500, "child": 0 },
   ...
 }`;
-        const hotelResult = await generateGeminiContent(hotelPrompt, null, true);
+        const hotelResult = await generateGeminiContent(hotelPrompt, null, true, { timeoutMs: 75000 });
         const hotelMatch = hotelResult.match(/\{[\s\S]*\}/);
         if (hotelMatch) {
           const hotelEstimates = JSON.parse(hotelMatch[0]);
@@ -8074,10 +8116,10 @@ ${JSON.stringify(hotelWithDates)}
         }
       }
 
-      if (!silent) alert("費用估算完成！門票與住宿已自動更新。");
+      if (!silent) alert("費用估算完成！門票與住宿已自動更新（資訊分頁可看各站票價）。");
     } catch (e) {
       console.error(e);
-      if (!silent) alert("估算失敗，請稍後再試。");
+      if (!silent) alert(/TIMEOUT/.test(e.message || "") ? "估算逾時（網路或 Gemini 太慢），請稍後再試。" : /QUOTA/.test(e.message || "") ? "Gemini 配額用完，請稍後再試。" : "估算失敗，請稍後再試。");
     } finally {
       setIsTicketEstimating(false);
     }
@@ -8154,6 +8196,50 @@ ${JSON.stringify(hotelWithDates)}
   const [metroSimRequest, setMetroSimRequest] = useState(0);
   const [intelAllRequest, setIntelAllRequest] = useState(0);
   const [radarRequest, setRadarRequest] = useState(0);
+  // 更多 › AI 查核今天所有站：在 App 層跑（切分頁也不會中斷），結果用底部面板逐站顯示
+  const [intelJob, setIntelJob] = useState(null);
+  const intelCancelRef = useRef(false);
+  useEffect(() => {
+    if (!intelAllRequest) return;
+    if (!localStorage.getItem("gemini_api_key")) { setIsKeyModalOpen(true); return; }
+    let sim = null; try { sim = JSON.parse(localStorage.getItem("metro_sim") || "null"); } catch (e) {}
+    const stNow = computeMetroState(tripData, new Date(), null, shoppingList);
+    const di = sim ? sim.dayIdx : stNow.phase === "trip" ? stNow.dayIdx : 0;
+    const day = tripData[di];
+    if (!day) return;
+    intelCancelRef.current = false;
+    const items = day.spots.map((sp) => ({ id: sp.id, name: metroShort(sp.name), state: "wait" }));
+    setIntelJob({ dayIdx: di, dayTitle: day.title, date: day.date, items, done: false, min: false, startedAt: Date.now() });
+    const patch = (i, o) => setIntelJob((j) => j ? { ...j, items: j.items.map((x, k) => (k === i ? { ...x, ...o } : x)) } : j);
+    (async () => {
+      const all = loadIntel();
+      let stopReason = "";
+      for (let i = 0; i < day.spots.length; i++) {
+        if (intelCancelRef.current) { stopReason = "cancel"; break; }
+        const sp = day.spots[i];
+        patch(i, { state: "run" });
+        const t0 = Date.now();
+        try {
+          const dep = minutesToTimeStr(timeToMinutes(sp.time) + parseStayDuration(sp.stay));
+          // 關掉思考模式：實測 3–4 秒即回，開著要 20–25 秒；逾時 40 秒就跳下一站
+          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 4096, noThinking: true, timeoutMs: 40000 });
+          const o = parseIntel(text); o.at = Date.now(); all[sp.id] = o; saveIntel(all);
+          patch(i, { state: o.status_level === "closed" ? "closed" : o.status_level === "warn" ? "warn" : "ok", status: o.status || o.must_know || o.raw || "已查到", ms: Date.now() - t0 });
+        } catch (e) {
+          const m = e.message || "";
+          patch(i, { state: "err", status: /TIMEOUT/.test(m) ? "逾時，已跳過" : /QUOTA/.test(m) ? "配額用完" : /BAD_API_KEY/.test(m) ? "金鑰無效" : "查詢失敗，已跳過", ms: Date.now() - t0 });
+          if (/QUOTA|BAD_API_KEY|NO_API_KEY/.test(m)) { stopReason = /QUOTA/.test(m) ? "quota" : "key"; break; }
+        }
+        if (i < day.spots.length - 1) await new Promise((r) => setTimeout(r, 1200));
+      }
+      setIntelJob((j) => j ? { ...j, done: true, stopReason, min: false } : j);
+    })();
+  }, [intelAllRequest]);
+  const openIntelStation = (i) => {
+    const j = intelJob; if (!j) return;
+    setIntelJob(null); setActiveTab("metro");
+    setTimeout(() => metroGo({ level: "station", day: j.dayIdx, spot: i }), 0);
+  };
   const launchGeminiPriceCheck = () => launchGemini(window.GEMINI_PRICE_PROMPT || GEMINI_PRICE_PROMPT_DEFAULT);
   const shoppingBody = (
     <>
@@ -8458,6 +8544,12 @@ ${JSON.stringify(hotelWithDates)}
         </div>
       )}
 
+      {isTicketEstimating && (
+        <div style={{ position: "fixed", left: 16, right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 94, background: "#1767B3", color: "#fff", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, boxShadow: "0 6px 20px rgba(0,0,0,.3)" }}>
+          💴 AI 估算票價與房價中…（約 30–60 秒，完成會跳通知）
+        </div>
+      )}
+      {intelJob && <IntelJobSheet job={intelJob} onMin={(m) => setIntelJob((j) => j && { ...j, min: m })} onCancel={() => { intelCancelRef.current = true; }} onClose={() => setIntelJob(null)} onOpen={openIntelStation} />}
       {!(activeTab === "metro" && metroView.level === "station") && <div className="fixed bottom-0 w-full bg-white/95 backdrop-blur-md border-t-2 border-gray-200 z-40 flex justify-around pt-2 text-xs font-bold text-gray-500" style={{ paddingBottom: "calc(8px + env(safe-area-inset-bottom))" }}>
         <button
           onClick={() => setActiveTab("metro")}

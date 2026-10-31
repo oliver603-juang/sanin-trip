@@ -873,7 +873,7 @@ const DailyDetailModal = ({
   const dayExpensesList = [];
 
   filteredDays.forEach((day) => {
-    day.spots.forEach((spot) => {
+    [...day.spots, ...(day.skippedSpots || [])].forEach((spot) => {
       const expenses = allExpenses[spot.id] || [];
       expenses.forEach((r) =>
         dayExpensesList.push({ ...r, spotName: spot.name })
@@ -4789,7 +4789,7 @@ const haptic = (ms = 12) => {
 };
 // 📸 一鍵把比價指令複製到剪貼簿，再喚醒手機的 Gemini App（Pixel 9a 也可長按電源鍵叫出 Gemini）
 const GEMINI_PRICE_PROMPT_DEFAULT = `你是我的日本旅遊尋寶與比價助手。請分析我接下來上傳的商品或標價照片：
-1.【匯率換算】抓出日幣價格（分清稅拔／稅込），以 1 日圓 ≈ 0.215 台幣換算，並提示同店消費是否已滿 5,000 日圓可退稅。
+1.【匯率換算】抓出日幣價格（分清稅拔／稅込），以 1 日圓 ≈ 0.215 台幣換算，並提示同店消費是否已達含稅 5,500 日圓（未稅 5,000）可於機場退稅（2026/11 起店內先付含稅價）。
 2.【行情比價】辨識商品型號／番號，比對台灣網拍或二手行情，直接告訴我「值得買」「普通」或「台灣買就好」。
 3.【防雷提醒】若是二手玩具、樂高、動漫周邊或電子產品，用一句話提醒常見缺件、盜版特徵或通病。
 請用極簡條列回答，讓我在店內 3 秒看完做決定。`;
@@ -6227,7 +6227,9 @@ const OrganizeList = ({ day, dayIdx, spots, cur, isToday, isPastDay, organize, s
   const moveBy = (x, i, dir) => {
     const j = i + dir;
     if (j < firstMovable || j > lastMovable) { haptic(30); showToast(dir < 0 ? "已經是最前面可移動的位置" : "已經在最後（飯店固定在最後）"); return; }
-    haptic(); organize.moveSpot(day.dayId, sidOf(x), dir); announce(x, j);
+    // 用「插到某站之前」實作，飯店等固定站不會被交換位置；跨過飯店＝改成入住後步行去
+    const before = dir < 0 ? spots[j] : spots[j + 1];
+    haptic(); organize.moveSpotTo(day.dayId, sidOf(x), before ? sidOf(before) : null); announce(x, j);
   };
   // 拖曳
   const overIndexFromY = (y) => {
@@ -7297,7 +7299,14 @@ function App() {
     const day = window.RAW_KML_DATA.find((d) => d.dayId === dayId);
     const sids = composeDay(day).map((x) => x.sid).filter((x) => x !== sid);
     let j = beforeSid ? sids.indexOf(beforeSid) : -1;
-    if (j < 0) { const all = composeDay(day); const h = all.findIndex((x) => isHotel(x.name) && x.sid !== sid); j = h >= 0 ? sids.indexOf(all[h].sid) : sids.length; }
+    if (j < 0) {
+      // 拖到最底：只有當天最後一站是固定點（飯店／還車／機場）時才擋在它前面；
+      // Day 1／Day 5 飯店在中間、後面還有步行站的情況，就放到真正的最後
+      const all = composeDay(day).filter((x) => x.sid !== sid);
+      const last = all[all.length - 1];
+      const endLocked = last && (isHotel(last.name) || /還車|機場/.test(last.name));
+      j = endLocked ? sids.indexOf(last.sid) : sids.length;
+    }
     sids.splice(j, 0, sid);
     setDayOrder(dayId, sids);
   };
@@ -7373,11 +7382,7 @@ function App() {
             driveTime:
               (hasRealDrive ? dt.min + driveBuffer : Math.round((dist / 40) * 60 + 10)) + "m",
             walkTime: Math.round((dist / 4) * 60) + "m",
-            navLink: `https://www.google.com/maps/dir/?api=1&origin=${
-              spot.lat
-            },${spot.lon}&destination=${nextSpot.lat},${
-              nextSpot.lon
-            }&travelmode=${mode === "car" ? "driving" : "walking"}`,
+            navLink: `https://www.google.com/maps/dir/?api=1&destination=${nextSpot.lat},${nextSpot.lon}&travelmode=${mode === "car" ? "driving" : "walking"}&dir_action=navigate`,
           };
         }
         return {
@@ -7418,7 +7423,8 @@ function App() {
           }
         }
       });
-      return { ...d, totalTwd: dayTotal };
+      // skippedSpots 一併帶給每日明細彈窗，讓明細加總＝卡片總額
+      return { ...d, totalTwd: dayTotal, skippedSpots: skippedExtra.map((x) => ({ ...x, name: x.name + "（已略過）" })) };
     });
   }, [tripData, expenses, spotTicketCounts, ticketOverrides, skipMap, orderMap, customSpots]);
   const stats = {
@@ -7474,7 +7480,7 @@ function App() {
       if (roomPrice === null) return;
       setTicketOverrides((prev) => ({
         ...prev,
-        [spotId]: { adult: parseInt(roomPrice) || 0, child: 0 },
+        [spotId]: { adult: parseInt(roomPrice) || 0, child: 0, manual: true, currency: "JPY" },
       }));
     } else {
       const adultPrice = prompt("請輸入成人票價 (¥):", current.adult);
@@ -7486,6 +7492,8 @@ function App() {
         [spotId]: {
           adult: parseInt(adultPrice) || 0,
           child: parseInt(childPrice) || 0,
+          manual: true,
+          currency: "JPY",
         },
       }));
     }
@@ -8636,7 +8644,7 @@ ${JSON.stringify(hotelWithDates)}
         spotTicketCounts={spotTicketCounts}
         selectedCurrency={selectedCurrency}
         exchangeRate={exchangeRate}
-        tripData={tripData}
+        tripData={dailyStats}
         ticketOverrides={ticketOverrides}
         getTicketCounts={getTicketCounts}
       />

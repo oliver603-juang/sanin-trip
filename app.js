@@ -216,9 +216,10 @@ const generateGeminiContent = async (
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     // Gemini 2.5 預設會先「思考」，查資料型任務不需要（實測 23 秒 → 3.5 秒）：
     // 一律預設關閉，只有明確傳 opts.thinking === true（活動雷達）才保留
-    if (opts.thinking !== true && /2\.5/.test(model)) {
+    if ((opts.thinking !== true || opts.thinkingBudget) && /2\.5/.test(model)) {
+      // thinkingBudget：有限額度的思考（雷達用 1024），思考 token 會算進 maxOutputTokens，所以要一起放大
       payload.generationConfig = Object.assign({}, payload.generationConfig, {
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: { thinkingBudget: opts.thinking === true ? (opts.thinkingBudget || 0) : 0 },
       });
     } else if (payload.generationConfig) {
       delete payload.generationConfig.thinkingConfig;
@@ -1175,61 +1176,10 @@ const RT_GRAY = "#d9dde2";
 const RT_BRANCH = "#a1897a";
 const RT_SPROUT = "#8fae9b";
 
-const RT_ROAD_POLY = [
-  "ge~kEace{WhJr_@aM`MlG}IcmAds@{c@aRkvCuNmK{MoLw]fSsnBcYy`BxSgnBub@otBiJGxHuWkXmAsm@nq@gYjiA|St^ieA~e@`JmLfp@wYdd@dCyCqWy{Ak|Ayl@wtAow@_bAwHqp@syA_cBiXa{BeUee@inBytAyc@e~@cp@kf@e`@kcAiNebCxJwt@i[c`@oBej@nSmcAqFwp@sRgHkIak@cx@qf@e~AaScQiXks@iMoEiZygBt|@esAxVko@ePgK}m@{zAmcA_e@kz@vBak@yUwi@Dg{@ee@iOenBnF}SktDtGmiD}tAstBbGyl@lk@kq@nF}kC{C}c@mh@kA",
-  "k`xmEgty}Wuh@nj@}KkhAjCdFJe@~nDhI~mHt`DnjGwfAnnDjdBxp@cb@`nE{@`pDf`An|Cz_KvKjfIr}BhnFVj_DfoD}YpiBdeAti@p|DtiBlbBhmAbRnBxrAltAhz@de@drCf{@~cAi\\pz@es@|Gbh@|i@n`@h_E}o@bkAmfD~nAgWbUx~CfjFvbByr@uAy|@{vCazDtT{p@|~BoEr_IanE~dBhA~uCay@|yLbPz`B}i@rqAcsA`Fva@lvAxG~_AdaA~o@nwDm|@rg@whBwN{WtbCps@|a@|HhlCvo@dt@|C~{A`}AfbEdtB}ElVrgBrdBz[o`@hkBhKriJafBtq@",
-  "}u_jEochzWnbAaBlsA}BvW_FnMwWteAwIueAvIeNfXiWm@oQ~vC}pCrb@eh@tDx^|yA`]ltDeeE|gD~QdcE~QtVtGlaAkY|sDlVk_@dKlg@naAlqAjq@bsCd_B`dAndC`rCld@nQvVaFxGjNr[sO`a@vSnpAxrBf]gg@r]wKhHnQfYf@|\\wXf[l^xAvoA~VvnAjWfj@xxAhq@x@tn@dZlgA{AtsBkb@ziBu^|h@_Nz_AtHtaGc^foAet@jmAeGzu@hGfi@~a@vv@bIpaApcAhnA`@f|B|Tnw@m^p{AxIt_D{V`m@gt@hAq`Alu@~NaO_EhItwAgbByJgpAfPiXeMk|@",
-  "_gkiEcq_wWvG|fDijAtoC~p@~xBm@jzAl@kzAeq@gzB|H_}@hu@u|@_Ecs@|C_w@|DkvA`fA}jAaVctDadA}mAgv@qnDWd^aj@uz@ekHj\\oqDii@q`Bq|A}eAuFcpA~cBc_ChcAyt@hAun@s~@weBzLtT{NsT{ZghC}Cgk@{]li@aaBqm@{`@gOmy@y`BteAym@iK{[stBw_CahCkFwmAyuA}dC~Os^|ZqyA|i@sWa}@{|H}z@}dAqmB|t@ahCctAgf@hG}|AujIxGooBgw@a{Bw@e{AsdBmeFeq@qi@a`EwqImQ_cAz`@izDnIceJs{B{}Hqf@`MfG`Dzx@sv@`DtE",
-  "wc~kEa||zW~@m@DgGiHc^{Use@?_DoDGIaBq@Ey@AIrFdHBh@iX{LuNaLqKtg@so@aAeC|DaFl@qCwCw@gBeCE{JeCsDGsAh@aA~OwIpBmDlC}BXaCqAwCqa@zV_AMeAl@K~@sCjBsIjDnIsDfC}AViAnAs@t@Nba@kVJc@iByE",
-];
+const RT_ROAD_POLY = []; // 舊九州 OSRM 路徑已清空，縮圖改由各天站點座標自動連線
 
 // 每一段（景點到景點）的實際道路路線，供各景點縮圖使用
-const RT_ROAD_LEGS = [
-  [
-    "ge~kEace{WFCfBtE?b@JFdAnCMnABF\\\\d@@\\JVT\\t@?lAOf@{@vAAVHh@t@vANl@V^aM`Mk@eAxFeF~@q@",
-    "q_~kEi_d{WrDcBoYpWcYzCc^zX{c@aRkvCuNmK{MoLw]xQktAl@gYsCmUgQqm@gBy[jAuQfP}w@d@sb@mEkg@e[io@a@y[iJGnHuDH_R",
-    "czglEsjs{WaA_E{FjA_AqBmLvC]hKoLn@wNfTQzI{NpCFvJaCzQmUvj@F~AnS~VDtCoKJeDxBwGnKgLbHs]dLbKwDa@uF",
-    "ubllE}vm{W`@tFbPkF`^aZdd@dCyCqWmf@wq@kt@si@{Pcg@sXcWiAoTow@_bA?g^wHiQob@ok@g[kLiAwMqWkZiXa{BeUee@inBytAyc@e~@cp@kf@e`@kcA_L_x@iAeiAxJwt@i[c`@oBej@nSmcAqFwp@sRgHkIak@cx@qf@e~AaScQiXks@iMoEiZq|@hYgj@jb@go@fS}b@pBko@ePyRak@pF{A",
-    "yalmEuny|WqFzAgJ{Pgd@ec@yb@gP_e@kz@{@wPrDiYoCmQiQiWDg{@wSwAmPqLcQnEa|A^{Awu@}Jix@jBs]oHue@jBqfA|Ign@kD}ZGuVwM{PwFcOaw@m~@kFeSn@u[rEcPdRy\\fXqSnF}kC{C}c@yR{@mXbHyAwArE{E",
-  ],
-  [
-    "k`xmEgty}W_EbE`B`Ac@bAkLlA?`Aw@~GmA|QkCzJ{Lu@_Ca@@iBbAaD",
-    "ajymEwhx}WcA`DAhBoJsDxGq\\oOeAQIc@}CWeFLoGbBeMzBcMvE|AG`@_AS^VMn@s@W",
-    "_wymEcrz}WjCbALRXLg@~B",
-    "srymE}jz}WJe@",
-    "grymEclz}W{FzXhf@~IpoCqY~mHt`DnjGwfAnnDjdBxp@cb@`nE{@`pDf`An|Cz_KvKjfIr}BhnFVj_DfoD}YpiBdeAti@p|DtiBlbBhmAbRnBxrAltAhz@de@drCf{@~cAi\\pz@es@|Gbh@|i@",
-    "ekqkEexv{WC~CtBdCpAe@dAcEhBLoDlXMjWpMdHpBfFf@l`AvMrAJxa@uEzS}o@bkAiF`Bq[iAuFl@e}@hu@kJdDab@jH{XnRWc@jJmH",
-    "abwkEw{k{W`T{Kdb@mHzIoFrLoLtOx_@tJxJbE`NjVpf@~ElC~Q{AdGvB`KbRdDxNpi@pn@fC`KdBz^mBvQi@[",
-    "wvokEene{WuAy|@yz@oqAea@iD{x@gbBtT{p@~}@lK|_A}QlmBupArrC_gAp}@kt@~dBhA~uCay@frAdOprF{SbsBxTz`B}i@rqAcsA`Fva@lvAxG~_AdaA~o@nwD",
-    "c~cjE}mq{WFgEiAdKcq@tDgH~[e`ANqg@gOU|bAeWv~@~g@zRpJ`N|HhlCrLfWbb@|[|C~{A|`@ns@b{@vmCdtB}ElFh}@~Nhi@xm@cExu@~a@cKtaAkTrh@bFhrBgCtc@tKhPqI`dAhFf{BicBvYjA~QcD|C",
-  ],
-  [
-    "}u_jEochzWr@bHti@oHdD?~Di@~Jk@",
-    "mr}iEqfhzW~TkApNaBhRyDbOq@dJ\\F|F",
-    "_~ziEojhzWG}FtRvAhDy@vAuBdEaOpD_Dps@sBtUf@UuF{BU",
-    "apwiE_uizWzBTTtFuUg@qs@rBaD`CuE~OmBdCsCh@uRwAkF~`CsC~LoE~FmFtCkQlEcwBnW",
-    "ub`jEyvbzWeh@tDzC`^|Yzz@`]ltDk}DbxCyFxN~QdcE~QtVqAhSfJbm@gKdsAp@nh@uNfv@zGuBpMu[_C~DdOla@naAlqAlYlcB|Vtn@n^h^t_Avd@`h@vq@pr@fj@zg@`t@ld@nQvVaFxGjNr[sO`a@vSnpAxrBdToP`HwUr]wKhHnQnMyFvJ`H",
-    "akoiEiltxW|FbC|AsT`RgGf[l^vE|TwGrSxCde@|MlZ`Hhs@jWfj@xxAhq@x@tn@hUzi@zCp\\{H`j@~ErhAiWjl@aJn|@u^|h@_Nz_AsEvy@tHzu@kAhu@zJfu@{Anc@c^foAc]d_@aVdm@eGzu@hGfi@~a@vv@Ldh@tHjXpQt\\hc@pVtL`YwDpu@xEteA|Tnw@m^p{AxIt_D{V`m@{Tw@eWlIeFkEq`Alu@",
-    "}`niEe`wvWi@B]o@fQuM",
-    "}pmiEgpwvWjBsALTqJbHv@bB",
-    "}vmiE}ewvWcAyB~NqKnG_@tDcC~HkG`MsMhX_b@vAl@nGeT}@sKGoMu@yHHeLyD_KI_KcAcFTkE`KyFhAqAl@wAVyDm@eEkGcIuEmOMuGvA}R",
-  ],
-  [
-    "_gkiEcq_wWwA|RLtGtElO|FfHv@dDaAlIkMjIUjEbAbFClIfEpLIdLzB|c@oGdTz@`@yBhGR~CsHzJg@hFwHvDuKtPuJtIiKdQeGrd@jIzl@`J~HrClLEfFyClJB`FbM`UnK`AdAxARxEyBzHj@le@{CtO~B|@OpGxFnFaEp@",
-    "_ykiEccovW_AwHV{F_C}@pCiMmAie@vCqIEsGeAyAoKaAcMaUCaFxCmJDgFsCmLaJ_IqIcn@bDi^`JaRgEsJ~[uYhX_b@t@{O_DyQkFsPtCd@",
-    "ookiEqi{vWsA[aAIqGwRMoA?kARuAh@{BpDmL\\m@~@_AvGuDQa@",
-    "qjkiEqa}vWrPwN{Ood@dDca@tIwTjn@gM~K}f@cUwt@]k~BadA}mAgIuaAgc@}y@wG}p@Wd^aj@uz@co@wOaz@lVm`DTq^~ToqDii@sz@{_@qAkWkb@ic@}eAuFcpA~cBc_ApM__Avt@yt@hAun@s~@sz@|LmT}NuTzN",
-    "mapjEimpwWmBgFbXsGsT{ZmL`DyzB_I{VgEqCgSyNkC|Rs^tAwj@xRuUqWs\\_UgCgOmy@oRaC_f@`YySte@oQ~HuPmIc\\{@gBmz@cPcVMqKuF~EzCaIgDmRwe@_ScAkVuFiEaDrG}Wc\\kQmr@y^mNkFwmAcV}PkHk]s\\a_@qGe`@cOkS~Os^",
-    "ufbkE{sfxW|ZqyA|i@sWgh@irCySqiD_Yms@}`@oPqmB|t@ahCctAgf@hGaTstAiZam@tB{q@gp@ctCxGooBma@ciByT}Pw@e{AsdBmeFeq@qi@gcAiqC}aAqsA{x@{jBmQ_cAhOgs@yCiuAjUwo@nIceJ}_@wkBq~@ikBc[ydBqf@`M",
-    "}j`lEep{zW]LaA|AhClC|EwA",
-    "ub`lEck{zWlA[bAsArLsD~@k@be@ga@h@i@aCcGhAm@",
-    "yh~kEwb}zWiAl@`CbGhB{A",
-  ],
-  [
-    "wc~kEa||zW~@m@DgGiHc^cTgc@w@kA?_DoDGOED{Aq@E",
-    "ci_lE_t_{WpFEXmP{LuNaLqKtg@so@aAeC|DaFl@qCwCw@gBeCE{JeCsDGsAh@aA~OwIpBmDlC}BXaCqAwCqa@zV_AMeAl@K~@sCjBsIjDnIsDfC}AViAnAs@t@Nba@kVJc@iByE",
-  ],
-];
+const RT_ROAD_LEGS = [];
 
 // Google/OSRM encoded polyline 解碼
 const rtDecodePoly = (str) => {
@@ -1856,7 +1806,7 @@ const ItineraryTab = ({
                       {spot.taxFree.ok === true ? "🟢" : spot.taxFree.ok === false ? "🔴" : "⚪"}
                     </span>
                     <span>
-                      {spot.taxFree.ok === true ? "可免税（未税滿 ¥5,000・帶護照）"
+                      {spot.taxFree.ok === true ? "可免税（含税滿 ¥5,500・帶護照・機場退税）"
                         : spot.taxFree.ok === false ? "不可免税" : "免税未確認"}
                     </span>
                   </div>
@@ -4111,7 +4061,8 @@ const PriceCompare = ({ mode, aiLoading, setAiLoading, openKeyModal, twdJpyRate 
   const yenNum = parseInt(String(yen).replace(/[^\d]/g, ""), 10);
   const effYen = isNaN(yenNum)
     ? null
-    : Math.round(yenNum * (taxFree ? (bookoffFee ? 0.9 + 0.03 : 0.9) : 1));
+    // 2026/11 起日本免税改「店內付含税價、出境退税」：輸入含税標價；免税＝÷1.1（BOOKOFF 再收 3% 手續費）
+    : Math.round(taxFree ? (yenNum / 1.1) * (bookoffFee ? 1.03 : 1) : yenNum);
   const twd = effYen == null ? null : Math.round(effYen / rate);
 
   // src: "camera" 直接開相機（手機）／"gallery" 開圖庫或檔案（手機、筆電都可）
@@ -4181,8 +4132,8 @@ ${q ? `使用者輸入的商品：${q}` : "使用者沒有輸入商品名稱。"
 ${img ? (imgKind === "item"
   ? "使用者附了【商品實物照片】。請先辨識這是什麼商品：品牌、系列、型號、容量／尺寸盡量認出來；認不出來就說認不出來，不要猜一個像的。"
   : "使用者附了【店家價格標照片】。請讀出商品名稱與日圓價格，日文一併翻成中文。") : ""}
-${hasYen ? `日本標價：¥${yenNum.toLocaleString()}（未税）` : "使用者沒有提供日本標價，照片上可能也沒有。"}
-${taxFree && hasYen ? `此店可免税，實付約 ¥${effYen.toLocaleString()}${bookoffFee ? "（已扣 BOOKOFF 3% 手續費）" : ""}。` : ""}
+${hasYen ? `日本標價：¥${yenNum.toLocaleString()}（含税 税込）` : "使用者沒有提供日本標價，照片上可能也沒有。"}
+${taxFree && hasYen ? `此店可免税（2026/11 起店內先付含税、機場退 10% 消費税），退税後實質約 ¥${effYen.toLocaleString()}${bookoffFee ? "（已含 BOOKOFF 3% 手續費）" : ""}。` : ""}
 匯率：1 TWD ≈ ${rate} JPY${twd ? `，日本實付約 NT$${twd.toLocaleString()}` : ""}。
 ===== 背景資料結束 =====
 
@@ -4377,7 +4328,7 @@ ${taxFree && hasYen ? `此店可免税，實付約 ¥${effYen.toLocaleString()}$
           value={yen}
           onChange={(e) => setYen(e.target.value)}
           inputMode="numeric"
-          placeholder="日本標價（¥，未税）"
+          placeholder="日本標價（¥，含税 税込）"
           className="w-full min-w-0 px-4 py-3 rounded-2xl border-2 border-gray-200 text-base font-bold text-gray-800 focus:border-indigo-400 outline-none"
         />
         <div className="grid grid-cols-2 gap-2">
@@ -4428,7 +4379,7 @@ ${taxFree && hasYen ? `此店可免税，實付約 ¥${effYen.toLocaleString()}$
             onClick={() => setTaxFree(!taxFree)}
             className={`px-3 py-2 rounded-full border-2 text-xs font-black ${taxFree ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
           >
-            {taxFree ? "✅" : "⬜"} 這家可免税（滿 ¥5,000）
+            {taxFree ? "✅" : "⬜"} 這家可免税（含税滿 ¥5,500，機場退税）
           </button>
           {taxFree && (
             <button
@@ -4442,7 +4393,7 @@ ${taxFree && hasYen ? `此店可免税，實付約 ¥${effYen.toLocaleString()}$
 
         {twd != null && (
           <div className="p-3 rounded-2xl bg-indigo-50 border-2 border-indigo-100 text-sm font-black text-indigo-800">
-            實付約 ¥{effYen.toLocaleString()} ≈ NT${twd.toLocaleString()}
+            {taxFree ? "退税後實質約" : "實付約"} ¥{effYen.toLocaleString()} ≈ NT${twd.toLocaleString()}
             <span className="text-[11px] font-bold text-indigo-400 ml-2">（1 TWD ≈ {rate} JPY）</span>
           </div>
         )}
@@ -5061,7 +5012,8 @@ const dinnerStops = (spots, from) => {
   const h = hotelIndex(spots);
   if (h < 0) return { h, list: [] };
   const list = [];
-  for (let i = Math.max(0, from); i < h; i++) if (SUPERMARKET_RE.test(spots[i].name)) list.push(i);
+  // 飯店前順路的超市，以及 check-in 之後步行可到的超市（Day 1／Day 5 飯店不在最後一站）都算晚餐採買
+  for (let i = Math.max(0, from); i < spots.length; i++) if (i !== h && SUPERMARKET_RE.test(spots[i].name)) list.push(i);
   return { h, list };
 };
 
@@ -5242,7 +5194,7 @@ const MetroTab = ({
           )}
         </div>
       )}
-      {radarOpen && <EventRadar tripData={liveData} close={() => setRadarOpen(false)} openKeyModal={openKeyModal} showToast={showToast} addCustomSpot={addCustomSpot} addShoppingItem={addShoppingItem} st={st} sim={sim} go={go} />}
+      {radarOpen && <EventRadar tripData={liveData} close={() => setRadarOpen(false)} openKeyModal={openKeyModal} showToast={showToast} addCustomSpot={addCustomSpot} organize={organize} addShoppingItem={addShoppingItem} st={st} sim={sim} go={go} />}
       {simOpen && <SimSheet sim={sim} setSim={setSim} close={() => setSimOpen(false)} tripData={tripData} />}
     </div>
   );
@@ -5325,7 +5277,7 @@ const parseIntel = (text) => {
     if (m) { const o = JSON.parse(m[0]); if (o && (o.status || o.must_know)) return o; }
   } catch (e) {}
   // JSON 被截斷或格式不全：逐欄位用正規式撈，撈得到就照卡片顯示
-  const pick = (k) => { const m = t.match(new RegExp('"' + k + '"\\s*:\\s*"([^"]*)')); return m ? m[1] : ""; };
+  const pick = (k) => { const m = t.match(new RegExp('"' + k + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)')); return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, " ") : ""; };
   const o = { status: pick("status"), status_level: pick("status_level"), must_know: pick("must_know"), parking: pick("parking"), extra: pick("extra") };
   if (o.status || o.must_know) return o;
   return { raw: t.replace(/^\{?\s*"[a-z_]+"\s*:\s*"/i, "").replace(/"\s*,\s*"[a-z_]+"\s*:\s*"/gi, "\n• ").replace(/"\s*\}?$/, "") };
@@ -5546,7 +5498,7 @@ const parseEvents = (text) => {
   try { const m = t.match(/\[[\s\S]*\]/); if (m) { const a = JSON.parse(m[0]); if (Array.isArray(a)) return a.filter((x) => x && x.title); } } catch (e) {}
   return [];
 };
-const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, addShoppingItem, st, sim, go }) => {
+const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, addShoppingItem, st, sim, go, organize }) => {
   const [di, setDi] = useState(sim ? sim.dayIdx : st.phase === "trip" ? st.dayIdx : 0);
   const [all, setAll] = useState(() => loadEvents());
   const [busy, setBusy] = useState(false);
@@ -5557,7 +5509,7 @@ const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, a
     if (!navigator.onLine) { showToast("沒有網路"); return; }
     haptic(); setBusy(true);
     try {
-      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000, timeoutMs: 75000, thinking: true });
+      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 8192, timeoutMs: 75000, thinking: true, thinkingBudget: 1024 });
       const list = parseEvents(text);
       const next = { ...all, [day.dayId]: { list, at: Date.now(), raw: list.length ? null : text.slice(0, 200) } };
       setAll(next); try { localStorage.setItem(EVENTS_KEY, JSON.stringify(next)); } catch (e) {}
@@ -5576,7 +5528,8 @@ const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, a
   const insert = (ev) => {
     const near = nearestSid(ev);
     const sid = "c" + Date.now();
-    addCustomSpot(day.dayId, {
+    const addFn = (dayId, spot) => (organize && organize.insertSpotAt ? organize.insertSpotAt(dayId, spot, spot.afterSid) : addCustomSpot(dayId, spot));
+    addFn(day.dayId, {
       sid, name: "⭐ " + (ev.venue || ev.title), lat: ev.lat || (near ? day.spots.find((x) => (x.sid || x.id) === near.sid).lat : day.spots[0].lat), lon: ev.lon || (near ? day.spots.find((x) => (x.sid || x.id) === near.sid).lon : day.spots[0].lon),
       desc: `${ev.title}｜${ev.date_time || ""}｜${ev.highlight || ""}｜來源：${ev.source || ""}`, defaultStay: "1 hr", afterSid: near ? near.sid : null, mapCode: "", ticket: { adult: 0, child: 0 }, custom: true, event: ev,
     });
@@ -5670,7 +5623,7 @@ const SettingsSheet = ({ close, openKeyModal, twdJpyRate, setTwdJpyRate, showToa
         <PillBtn onClick={() => { close(); openKeyModal(true); }}>{hasKey ? "更換金鑰" : "設定金鑰"}</PillBtn>
       </div>
       <div style={row}>
-        <div style={{ fontSize: 13, fontWeight: 900 }}>💱 匯率（1 台幣 ＝ ? 日圓）<span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>記帳換算用，有金鑰時每天自動更新</span></div>
+        <div style={{ fontSize: 13, fontWeight: 900 }}>💱 匯率（1 台幣 ＝ ? 日圓）<span style={{ fontSize: 11, color: METRO.sub, fontWeight: 700 }}>記帳換算用，每天自動更新（免金鑰公開匯率）</span></div>
         <div style={{ display: "flex", gap: 6 }}>
           <input type="number" inputMode="decimal" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} style={{ ...input, fontFamily: MONO }} />
           <PillBtn dark onClick={saveRate} style={{ flex: 0, padding: "0 16px" }}>儲存</PillBtn>
@@ -6337,7 +6290,7 @@ const OrganizeList = ({ day, dayIdx, spots, cur, isToday, isPastDay, organize, s
               )}
               <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.name}</div>
-                <div style={{ fontSize: 11, color: METRO.sub }}>{locked ? ("🔒 " + (isHotel(x.name) ? "住宿固定在最後" : /還車|機場/.test(x.name) ? "固定" : "已到達，不能移動")) : `停留 ${x.stay}`}</div>
+                <div style={{ fontSize: 11, color: METRO.sub }}>{locked ? ("🔒 " + (isHotel(x.name) ? (i < spots.length - 1 ? "住宿（之後是步行行程，固定）" : "住宿固定在最後") : /還車|機場/.test(x.name) ? "固定" : "已到達，不能移動")) : `停留 ${x.stay}`}</div>
               </div>
               {!locked && (
                 <>

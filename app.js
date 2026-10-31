@@ -201,6 +201,10 @@ const generateGeminiContent = async (
     contents,
     tools: useSearch ? [{ google_search: {} }] : undefined,
   };
+  // 系統層級指令：角色與「只輸出 JSON、不編造」等硬規則放這裡，模型遵守度比塞在 user 訊息高
+  if (opts.systemInstruction) {
+    payload.systemInstruction = { parts: [{ text: opts.systemInstruction }] };
+  }
   if (opts.maxTokens) {
     payload.generationConfig = { maxOutputTokens: opts.maxTokens };
   }
@@ -210,8 +214,9 @@ const generateGeminiContent = async (
     const model = mi === 0 ? GEMINI_MODEL : GEMINI_MODELS[mi];
     if (mi > 0 && model === GEMINI_MODEL) continue;
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    // Gemini 2.5 預設會先「思考」，現場比價不需要，關掉可省一大段延遲
-    if (opts.noThinking && /2\.5/.test(model)) {
+    // Gemini 2.5 預設會先「思考」，查資料型任務不需要（實測 23 秒 → 3.5 秒）：
+    // 一律預設關閉，只有明確傳 opts.thinking === true（活動雷達）才保留
+    if (opts.thinking !== true && /2\.5/.test(model)) {
       payload.generationConfig = Object.assign({}, payload.generationConfig, {
         thinkingConfig: { thinkingBudget: 0 },
       });
@@ -277,6 +282,18 @@ const generateGeminiContent = async (
     }
   }
   throw lastErr || new Error("ALL_MODELS_FAILED");
+};
+
+// 免金鑰公開匯率（open.er-api.com，每日更新；逾時 6 秒）
+const fetchPublicRate = async (from, to) => {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${from}`, { signal: ctrl.signal });
+    const j = await res.json();
+    const r = j && j.rates && j.rates[to];
+    return typeof r === "number" && r > 0 ? r : null;
+  } finally { clearTimeout(t); }
 };
 
 const timeToMinutes = (t) => {
@@ -5279,10 +5296,11 @@ const KIND_CHECKS = {
   outdoor: "這是戶外景點／古蹟／雪場。請查：1) 1 月底積雪、暴風雪、強風導致封閉或纜車停駛的風險與官方公告；2) 冬季開放時間與最後入場（如城郭 16:00 閉門）；3) 需脫鞋、地面結冰、裝備（防滑、厚襪、暖暖包）等實戰注意；4) 停車場與冬季路況。",
   hotel: "這是住宿。請查：1) 入住與退房時間、停車場費用與是否需預約；2) 晚餐／早餐時段與最後入場；3) 溫泉或設施的使用時間、小學生可否使用；4) 附近 1 公里內的超市或便利商店（買隔天早餐）。",
 };
+const INTEL_SYSTEM = "你是日本山陰山陽冬季自駕旅遊的「副駕情報官」。硬規則：嚴禁「注意保暖、穿好走的鞋、祝旅途愉快」等常識廢話；查不到就寫「未查到」，嚴禁編造；只輸出一個 JSON 物件，不加 markdown 標記、不加任何說明文字。";
 const buildIntelPrompt = (s, day, arr, dep, mode) => {
   const fam = localStorage.getItem("travelers") || window.TRAVELERS || "2 大 2 小（兩個小學男生）";
   const date = "2027 年 " + day.date.replace(/\s*\(/, "（").replace(/\)/, "）");
-  return `你是日本山陰山陽冬季自駕旅遊的「副駕情報官」。請用 Google 搜尋該地點的日文官方資訊，給出極簡、高價值的實戰提醒。
+  return `請用 Google 搜尋該地點的日文官方資訊，給出極簡、高價值的實戰提醒。
 
 地點：${s.name}
 座標：${s.lat},${s.lon}
@@ -5453,7 +5471,7 @@ const IntelCard = ({ s, day, arr, dep, mode, openKeyModal, showToast }) => {
     haptic();
     setBusy(true);
     try {
-      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 4096, noThinking: true, timeoutMs: 40000 });
+      const text = await generateGeminiContent(buildIntelPrompt(s, day, arr, dep, mode), null, true, { maxTokens: 4096, timeoutMs: 40000, systemInstruction: INTEL_SYSTEM });
       const o = parseIntel(text);
       o.at = Date.now();
       const all = loadIntel(); all[s.id] = o; saveIntel(all);
@@ -5499,21 +5517,28 @@ const loadEvents = () => { try { return JSON.parse(localStorage.getItem(EVENTS_K
 const buildEventPrompt = (day, dayIdx, tripData) => {
   const hotels = window.HOTEL_INFO || [];
   const wr = (window.WINTER_ROUTES || []).find((w) => w.dayId === day.dayId);
-  const pts = day.spots.filter((s) => !MINOR_RE.test(s.name)).map((s) => `${metroShort(s.name)}(${s.lat.toFixed(3)},${s.lon.toFixed(3)})`);
+  const keys = (window.RADAR_KEYS || {})[day.dayId] || { cities: [], venues: [], malls: [] };
+  // 只給 5 個代表站（頭尾＋中間），座標供 15 公里判斷；搜尋詞另外指定，避免 AI 只搜前兩站
+  const major = day.spots.filter((s) => !MINOR_RE.test(s.name));
+  const pick = major.length <= 5 ? major : [0, 0.25, 0.5, 0.75, 1].map((f) => major[Math.round(f * (major.length - 1))]);
+  const pts = pick.map((s) => `${metroShort(s.name)}(${s.lat.toFixed(3)},${s.lon.toFixed(3)})`);
   const stayNames = [hotels[dayIdx - 1], hotels[dayIdx]].filter(Boolean).map((h) => h.location).join("、");
   const weekend = /六|日/.test(day.date);
   const fam = localStorage.getItem("travelers") || window.TRAVELERS || "2 大 2 小（小學男生）";
-  return `請用 Google 搜尋日本在地公開資訊（優先：いこーよ、Walkerplus、神戸ジャーナル、岡山観光WEB、とっとり旅、フリマガイド、こくちーずプロ、各博物館與百貨官網、駿河屋／BOOKOFF 官方 X）。
-我們（${fam}，喜歡科學實驗、鐵道、樂高、動漫二手玩具、市集尋寶）將於 2027 年 ${day.date} 自駕走這條路線：
-路線：${wr ? wr.route : day.title}；住宿地：${stayNames || "無"}
-當天站點與座標：${pts.join("、")}
+  const ym = "2027年1月";
+  return `你是日本在地活動情報員。我們（${fam}，喜歡科學實驗、鐵道、樂高、動漫二手玩具、市集尋寶）將於 2027 年 ${day.date} 自駕走：${wr ? wr.route : day.title}；住宿地：${stayNames || "無"}。
+當天代表站點與座標：${pts.join("、")}
 
-請找出「2027 年 ${day.date} 當天正在舉辦」、且地點在上述任一站點 15 公里內或路線繞路 20 分鐘內的期間限定活動：
-${weekend ? "1) 蚤の市・フリーマーケット・骨董市・マルシェ・ハンドメイドイベント（週末重點）\n2) " : "1) "}博物館／科學館的企画展・特別展・ワークショップ
-${weekend ? "3)" : "2)"} 商場、車站大樓、百貨的ポップアップストア・催事・セール（動漫、卡牌、玩具、二手）
-${weekend ? "" : "3) 平日限定的工作坊或體驗\n"}
-規則：只列目前已公開、日期確認含當天的活動；查不到就回傳空陣列，嚴禁編造。每個活動給大約座標（lat,lon，查官網或地圖）。
-只輸出 JSON 陣列，不加 markdown：
+請務必用 Google 搜尋「分別」執行以下 ${weekend ? 3 : 3} 組日文檢索（每組至少查一次，不要只查第一組）：
+1) ${keys.cities.map((c) => `"${c} イベント ${ym}"`).join(" / ")}${weekend ? "，以及同地名 + 「蚤の市 OR フリーマーケット OR マルシェ OR 骨董市」" : "，以及同地名 + 「ワークショップ OR 体験 平日」"}
+2) ${keys.venues.map((v) => `"${v} 企画展 OR 特別展 OR ワークショップ 2027"`).join(" / ")}
+3) ${keys.malls.map((m) => `"${m} ポップアップ OR 催事 OR イベント ${ym}"`).join(" / ")}
+優先來源：いこーよ、Walkerplus、神戸ジャーナル、岡山観光WEB、とっとり旅、フリマガイド、こくちーずプロ、各館與商場官網。
+
+規則：
+- 只列「目前已公開、日期確認包含 2027 年 ${day.date} 當天」且地點在上述任一站點 15 公里內的活動；查不到就回傳空陣列 []，嚴禁編造、嚴禁拿 2025／2026 的活動冒充。
+- 每個活動給大約座標（lat,lon，查官網或地圖）。
+- 只輸出 JSON 陣列，不加 markdown、不加任何中英文說明：
 [{"title":"活動名（附日文原名）","venue":"場地名（供地圖定位）","lat":34.7,"lon":135.2,"date_time":"期間與時間","type":"特展／蚤之市／市集／快閃店／工作坊","highlight":"為什麼適合小學生或尋寶（30 字內）","source":"來源網站或官網關鍵字"}]`;
 };
 const parseEvents = (text) => {
@@ -5532,7 +5557,7 @@ const EventRadar = ({ tripData, close, openKeyModal, showToast, addCustomSpot, a
     if (!navigator.onLine) { showToast("沒有網路"); return; }
     haptic(); setBusy(true);
     try {
-      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000, timeoutMs: 75000 });
+      const text = await generateGeminiContent(buildEventPrompt(day, di, tripData), null, true, { maxTokens: 6000, timeoutMs: 75000, thinking: true });
       const list = parseEvents(text);
       const next = { ...all, [day.dayId]: { list, at: Date.now(), raw: list.length ? null : text.slice(0, 200) } };
       setAll(next); try { localStorage.setItem(EVENTS_KEY, JSON.stringify(next)); } catch (e) {}
@@ -6159,7 +6184,7 @@ const InsertSheet = ({ day, dayIdx, spots, st, organize, close, openKeyModal, sh
     setBusy(true);
     try {
       const anchor = defaultAfter || spots[0];
-      const text = await generateGeminiContent(`請用 Google 搜尋找出日本店家／景點「${name.trim()}」的座標，優先找離 ${anchor.name}（${anchor.lat},${anchor.lon}）最近的那一間。只輸出 JSON：{"lat":34.6,"lon":133.7,"label":"店名＋地址"}，找不到輸出 {"lat":null}`, null, true, { maxTokens: 1024 });
+      const text = await generateGeminiContent(`請用 Google 搜尋找出日本店家／景點「${name.trim()}」的座標，優先找離 ${anchor.name}（${anchor.lat},${anchor.lon}）最近的那一間。⚠️ 本行程只在日本「兵庫県・鳥取県・岡山県」範圍內，請確認找到的分店地址位於這三縣境內（同名他縣分店不算），並回傳精確到小數點後 4 位的 Google Maps 座標。只輸出 JSON：{"lat":34.6123,"lon":133.7123,"label":"店名＋地址"}，找不到輸出 {"lat":null}`, null, true, { maxTokens: 1024, timeoutMs: 40000 });
       const m = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
       const o = m ? JSON.parse(m[0]) : null;
       if (o && o.lat && o.lon) { setGeo({ lat: +o.lat, lon: +o.lon, label: o.label || "" }); showToast("已定位：" + (o.label || "")); }
@@ -7059,20 +7084,8 @@ function App() {
       "只輸出 STORE| 和 NOTE| 開頭的行，不要其他文字。";
 
     try {
-      const ctrl = new AbortController();
-      const killer = setTimeout(() => ctrl.abort(), 25000); // 訊號差時 25 秒放棄，改給地圖備案
-      const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey, {
-        signal: ctrl.signal,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }],
-        }),
-      });
-      clearTimeout(killer);
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      // 走共用的 generateGeminiContent：關思考、45 秒逾時、429 重試、模型降級都一起享有
+      const text = await generateGeminiContent(prompt, null, true, { noThinking: true, timeoutMs: 45000, maxTokens: 2048 });
 
       // Parse structured response
       const lines = text.split("\n").filter(l => l.trim());
@@ -7107,7 +7120,7 @@ function App() {
         setNearbyResults({ stores: [], notes: [], raw: text, fallbackUrl: "https://www.google.com/maps/search/藥妝+ドラッグストア/@" + lat + "," + lon + ",16z" });
       }
     } catch (e) {
-      setNearbyResults({ stores: [], notes: [], raw: e.name === "AbortError" ? "網路太慢，AI 搜尋逾時。" : "搜尋失敗：" + e.message, fallbackUrl: mapsFallback });
+      setNearbyResults({ stores: [], notes: [], raw: /TIMEOUT/.test(e.message || "") ? "網路太慢，AI 搜尋逾時。" : /QUOTA/.test(e.message || "") ? "Gemini 配額用完，先用地圖找。" : "搜尋失敗：" + e.message, fallbackUrl: mapsFallback });
     }
     setScanningNearby(false);
   };
@@ -7149,16 +7162,10 @@ function App() {
   useEffect(() => {
     const today = new Date().toDateString();
     if (localStorage.getItem("twd_jpy_rate_date") === today) return;
-    if (!localStorage.getItem("gemini_api_key")) return;
+    // 匯率改用免金鑰的公開 API（0.1 秒回、不吃 Gemini 聯網配額）；失敗就沿用快取值
     (async () => {
       try {
-        const res = await generateGeminiContent(
-          "1 TWD to JPY exchange rate? number only",
-          null,
-          true
-        );
-        const m = res.match(/[\d.]+/g);
-        const r = m ? parseFloat(m[m.length - 1]) : null;
+        const r = await fetchPublicRate("TWD", "JPY");
         if (r && r > 1 && r < 20) {
           setTwdJpyRate(r);
           localStorage.setItem("twd_jpy_rate", String(r));
@@ -7273,14 +7280,8 @@ function App() {
       }
       setIsRateLoading(true);
       try {
-        const res = await generateGeminiContent(
-          `1 JPY to ${selectedCurrency.code} rate? number only`,
-          null,
-          true
-        );
-        const matches = res.match(/[\d.]+/g);
-        const rate = matches ? parseFloat(matches[matches.length - 1]) : 1;
-        setExchangeRate(rate);
+        const rate = await fetchPublicRate("JPY", selectedCurrency.code);
+        setExchangeRate(rate || 1);
       } catch (e) {
         setExchangeRate(1);
       }
@@ -8222,7 +8223,7 @@ ${JSON.stringify(hotelWithDates)}
         try {
           const dep = minutesToTimeStr(timeToMinutes(sp.time) + parseStayDuration(sp.stay));
           // 關掉思考模式：實測 3–4 秒即回，開著要 20–25 秒；逾時 40 秒就跳下一站
-          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 4096, noThinking: true, timeoutMs: 40000 });
+          const text = await generateGeminiContent(buildIntelPrompt(sp, day, sp.time, dep, "car"), null, true, { maxTokens: 4096, timeoutMs: 40000, systemInstruction: INTEL_SYSTEM });
           const o = parseIntel(text); o.at = Date.now(); all[sp.id] = o; saveIntel(all);
           patch(i, { state: o.status_level === "closed" ? "closed" : o.status_level === "warn" ? "warn" : "ok", status: o.status || o.must_know || o.raw || "已查到", ms: Date.now() - t0 });
         } catch (e) {

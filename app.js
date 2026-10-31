@@ -4818,6 +4818,14 @@ const bearingTo = (a, b) => {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };
 const bearingName = (deg) => ["北", "東北", "東", "東南", "南", "西南", "西", "西北"][Math.round(deg / 45) % 8];
+// 出口左轉區：目的地 −10° 起、順時針到 +190°（半圈加兩端各 10° 模糊帶）；跨過 360 時中間印「360」提示是順時針繞過去。
+// 車用羅盤紅線與潛水表側窗讀的都是車頭方位，直讀，同一條公式。
+const leftTurnText = (bearing) => {
+  const b = Math.round(bearing);
+  const a = (b - 10 + 360) % 360, z = (b + 190) % 360;
+  return a > z ? `${a}→360→${z}` : `${a}→${z}`;
+};
+const compassLine = (bearing) => `紅線讀數 ${leftTurnText(bearing)} 請左轉，其餘右轉`;
 const isDepartureTrap = (name) => isHotel(name) || /停車場|駐車場|[Pp]arking|租車|取車|機場/.test(name);
 const mapsSearchNear = (q, lat, lon) =>
   "https://www.google.com/maps/search/" + encodeURIComponent(q) + "/@" + lat + "," + lon + ",14z";
@@ -6625,8 +6633,7 @@ const StationPage = ({
           const b = bearingTo(h, s);
           return (
             <SectionCard color="#7B52AE" title="從飯店出發" right={`${h.location} → 本站`}>
-              <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700 }}>🧭 本站在飯店的{bearingName(b)}方（{Math.round(b)}°）・預計 {s.time} 到</div>
-              <HeadingHint bearing={b} spot={s} nowMin={st.nowMin} />
+              <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700, lineHeight: "18px" }}>🧭 本站在飯店的{bearingName(b)}方（{Math.round(b)}°）・{compassLine(b)}・預計 {s.time} 到</div>
               <div style={{ fontSize: 11, color: METRO.sub }}>還在飯店車道裡就先按導航、滑行 5–10 公尺讓箭頭轉正；出口方向以上面為準。</div>
             </SectionCard>
           );
@@ -6738,10 +6745,9 @@ const StationPage = ({
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                 <div style={{ fontSize: 16, fontWeight: 900 }}>{next.name}</div>
                 <div style={{ fontSize: 12, color: "#3D3830" }}>車程約 {s.nextStop?.driveTime.replace("m", " 分")}・{s.nextStop?.distance}・預計 {next.time} 到</div>
-                <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700 }}>🧭 下一站在本站的{bearingName(bearingTo(s, next))}方（{Math.round(bearingTo(s, next))}°）</div>
+                <div style={{ fontSize: 12, color: "#0F3F70", fontWeight: 700, lineHeight: "18px" }}>🧭 下一站在本站的{bearingName(bearingTo(s, next))}方（{Math.round(bearingTo(s, next))}°）・{compassLine(bearingTo(s, next))}</div>
               </div>
             </div>
-            {isDepartureTrap(s.name) && <HeadingHint bearing={bearingTo(s, next)} spot={s} nowMin={st.nowMin} />}
             <div style={{ display: "flex", gap: 6 }}>
               <PillBtn dark href={mapsDir(next.lat, next.lon)}>導航到下一站</PillBtn>
             </div>

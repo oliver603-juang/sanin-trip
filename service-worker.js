@@ -1,4 +1,4 @@
-const APP_VERSION = '33'; // 與 index.html 的 ?v= 保持一致
+const APP_VERSION = '34'; // 與 index.html 的 ?v= 保持一致
 const CACHE_NAME = 'trip-2027-sanin-v' + APP_VERSION;
 const ASSETS_TO_CACHE = [
   './',
@@ -27,42 +27,63 @@ const NETWORK_FIRST = ['config.js', 'app.js', 'manifest.json', 'index.html'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting(); // 立即啟用新 SW
-  // 注意：cache.addAll 是全有或全無，第三方 CDN（例如 cdn.tailwindcss.com 沒有 CORS 標頭）
-  // 任何一個抓不到就整包失敗、SW 永遠裝不起來、離線快取等於沒有。
-  // 改成：同站檔案必須成功；跨站資源用 no-cors 逐一快取、失敗就略過。
+  // cache.addAll 是全有或全無：同站檔案必須成功；跨站 CDN 逐一快取、失敗就略過。
+  // 跨站先用 cors 抓（unpkg／jsdelivr／Google Fonts 都支援，存起來是可讀的 cors 回應，
+  // 之後 <script crossorigin> 才吃得到）；不支援 CORS 的（cdn.tailwindcss.com）才退回 no-cors 的 opaque。
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       const local = ASSETS_TO_CACHE.filter((u) => u.startsWith('./'));
       const remote = ASSETS_TO_CACHE.filter((u) => !u.startsWith('./'));
       await cache.addAll(local);
-      await Promise.allSettled(remote.map((u) =>
-        fetch(new Request(u, { mode: 'no-cors' })).then((res) => cache.put(u, res)).catch(() => null)
-      ));
+      await Promise.allSettled(remote.map(async (u) => {
+        try {
+          const r = await fetch(u, { mode: 'cors' });
+          if (r.ok) { await cache.put(u, r); return; }
+        } catch (e) {}
+        try {
+          const r = await fetch(new Request(u, { mode: 'no-cors' }));
+          await cache.put(u, r);
+        } catch (e) {}
+      }));
     })
   );
 });
 
+// 能不能把快取回應交給這個請求：opaque（no-cors 存的）只能給 no-cors 請求，
+// 給 <script crossorigin>（cors 請求）會被瀏覽器當成網路錯誤 → React is not defined
+const usable = (req, res) => !!res && !(res.type === 'opaque' && req.mode === 'cors');
+
 self.addEventListener('fetch', (event) => {
-  const url = event.request.url;
-  const isNetworkFirst = NETWORK_FIRST.some(f => url.includes(f));
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = req.url;
+  const isNetworkFirst = NETWORK_FIRST.some((f) => url.includes(f));
+  const sameOrigin = url.startsWith(self.location.origin);
 
   if (isNetworkFirst) {
-    // Network first: try server, fallback to cache
+    // 同站主程式：先抓網路（永遠拿最新），失敗退回快取
     event.respondWith(
-      fetch(event.request)
+      fetch(req)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          if (response.ok) { const clone = response.clone(); caches.open(CACHE_NAME).then((cache) => cache.put(req, clone)); }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(req))
     );
-  } else {
-    // Cache first: use cache, fallback to network
-    event.respondWith(
-      caches.match(event.request).then((response) => response || fetch(event.request))
-    );
+    return;
   }
+  // 函式庫與圖片：先快取、沒有（或快取不能用）才抓網路，抓到就補進快取
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      if (usable(req, cached)) return cached;
+      return fetch(req).then((response) => {
+        if (response && (response.ok || (response.type === 'opaque' && req.mode === 'no-cors'))) {
+          const clone = response.clone(); caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+        }
+        return response;
+      }).catch(() => cached || Response.error());
+    })
+  );
 });
 
 self.addEventListener('activate', (event) => {

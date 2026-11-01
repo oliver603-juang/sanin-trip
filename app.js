@@ -5353,10 +5353,10 @@ const StationPage = ({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isHere && <span style={{ height: 24, padding: "0 9px", borderRadius: 12, background: METRO.here, color: "#fff", fontSize: 12, fontWeight: 900, display: "flex", alignItems: "center" }}>{st.source === "time" ? "推估在這" : "我在這"}</span>}
-          <span style={{ fontSize: 12, opacity: 0.85 }}>第 {spotIdx + 1} 站／共 {spots.length} 站・{day.date} {s.time} 到</span>
+          <span style={{ fontSize: 12, opacity: 0.85 }}>第 {spotIdx + 1} 站／共 {spots.length} 站・{day.date} {s.time} 會抵達</span>
         </div>
         <div style={{ fontSize: 22, fontWeight: 900, lineHeight: "28px" }}>{s.name}</div>
-        <div style={{ fontSize: 13, opacity: 0.9 }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發` : `建議 ${minutesToTimeStr(depMin)} 出發`}</div>
+        <div style={{ fontSize: 13, opacity: 0.9 }}>停留 {s.stay}・{s.actualDepTime ? `已於 ${s.actualDepTime} 出發${next ? "前往 " + metroShort(next.name) : ""}` : next ? `建議 ${minutesToTimeStr(depMin)} 前往 ${metroShort(next.name)}` : `建議 ${minutesToTimeStr(depMin)} 出發`}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <a href={s.gmapLink} target="_blank" rel="noreferrer" style={hdrLink(on)}>地圖</a>
           {s.mapCode && <button onClick={copyMapCode} style={hdrLink(on)}>MapCode {s.mapCode} ⧉</button>}

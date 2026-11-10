@@ -3464,13 +3464,14 @@ const bearingTo = (a, b) => {
 };
 const bearingName = (deg) => ["北", "東北", "東", "東南", "南", "西南", "西", "西北"][Math.round(deg / 45) % 8];
 // 出口左轉區：目的地 −10° 起、順時針到 +190°（半圈加兩端各 10° 模糊帶）；跨過 360 時中間印「360」提示是順時針繞過去。
-// 車用羅盤紅線與潛水表側窗讀的都是車頭方位，直讀，同一條公式。
+// 指南針模式：腕錶指南針從上方刻度讀（S 的刻度是 0），讀數＝車頭方位＋180，原地右轉讀數增加。
+// 所以目標讀數＝方位＋180，左轉區也整圈平移 180（側窗或車用羅盤是直讀，才不用加 180）。
 const leftTurnText = (bearing) => {
   const b = Math.round(bearing);
   const a = (b - 10 + 360) % 360, z = (b + 190) % 360;
   return a > z ? `${a}→360→${z}` : `${a}→${z}`;
 };
-const compassLine = (bearing) => `紅線讀數 ${leftTurnText(bearing)} 請左轉，其餘右轉`;
+const compassLine = (bearing) => { const t = (Math.round(bearing) + 180) % 360; return `指南針轉到 ${t} 正對・讀數 ${leftTurnText(t)} 請左轉，其餘右轉`; };
 const isDepartureTrap = (name) => isHotel(name) || /停車場|駐車場|[Pp]arking|租車|取車|機場/.test(name);
 const mapsSearchNear = (q, lat, lon) =>
   "https://www.google.com/maps/search/" + encodeURIComponent(q) + "/@" + lat + "," + lon + ",14z";
@@ -3859,6 +3860,7 @@ const MetroTab = ({
 const SimSheet = ({ sim, setSim, close, tripData }) => {
   const [d, setD] = useState(sim ? sim.dayIdx : 2);
   const [m, setM] = useState(sim ? sim.min : 12 * 60 + 20);
+  useBackClose(close);
   return (
     <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 80, display: "flex", alignItems: "flex-end" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: "#fff", borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 14 }}>
@@ -4421,7 +4423,25 @@ const SOS_GROUPS = [
   ] },
 ];
 const mapsSearchHere = (q) => "https://www.google.com/maps/search/" + encodeURIComponent(q);
-const Sheet = ({ title, close, children }) => (
+// ↩️ 返回鍵／手勢一律可逆：每個抽屜、整理模式、彈窗開啟時壓一層 history，返回時先關它，不會直接跳出 App
+const NAV = { pending: 0, queue: [] };
+window.addEventListener("popstate", () => {
+  if (NAV.pending) { NAV.pending--; if (!NAV.pending) { const q = NAV.queue.splice(0); setTimeout(() => q.forEach((f) => f()), 0); } }
+}, true);
+const navBack = () => { NAV.pending++; history.back(); };
+const navRun = (fn) => (NAV.pending ? NAV.queue.push(fn) : fn());
+const useBackClose = (close) => {
+  const ref = useRef(close); ref.current = close;
+  useEffect(() => {
+    const id = "s" + Math.random().toString(36).slice(2, 8);
+    navRun(() => history.pushState({ ...(history.state || {}), sheet: id }, ""));
+    const onPop = () => { if (!(history.state && history.state.sheet === id) && ref.current) { const f = ref.current; ref.current = null; f(); } };
+    window.addEventListener("popstate", onPop);
+    return () => { window.removeEventListener("popstate", onPop); if (history.state && history.state.sheet === id) navBack(); };
+  }, []);
+};
+const BackCloser = ({ onClose }) => { useBackClose(onClose); return null; };
+const Sheet = ({ title, close, children }) => { useBackClose(close); return (
   <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 80, display: "flex", alignItems: "flex-end" }}>
     <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxHeight: "85dvh", overflowY: "auto", background: "#fff", borderRadius: "24px 24px 0 0", padding: "14px 16px calc(18px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 12, color: METRO.ink, fontFamily: "'Noto Sans TC', system-ui, sans-serif" }}>
       <div style={{ width: 40, height: 4, borderRadius: 2, background: METRO.past, alignSelf: "center" }} />
@@ -4429,7 +4449,7 @@ const Sheet = ({ title, close, children }) => (
       {children}
     </div>
   </div>
-);
+); };
 const SosSheet = ({ close }) => (
   <Sheet title="周邊搜・順路找" close={close}>
     <div style={{ fontSize: 12, color: METRO.sub }}>用目前位置在 Google 地圖搜最近的店，開車時請讓副駕操作</div>
@@ -5088,6 +5108,7 @@ const OrganizeList = ({ day, dayIdx, spots, cur, isToday, isPastDay, organize, s
 
 const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRoutes, delay, edit, organize, openKeyModal, showToast, runIntelAll, openRadar }) => {
   const [organizing, setOrganizing] = useState(false);
+  const exitOrganizing = () => setOrganizing(false);
   const [insertOpen, setInsertOpen] = useState(false);
   const pressTimer = useRef(null);
   const pressStart = () => { clearTimeout(pressTimer.current); pressTimer.current = setTimeout(() => { haptic(30); setOrganizing(true); }, 300); };
@@ -5164,6 +5185,7 @@ const DayLine = ({ tripData, st, dayIdx, go, back, openDetail, depart, winterRou
 
       <DayTabs tripData={tripData} st={st} dayIdx={dayIdx} onPick={(i) => go({ level: "day", day: i }, true)} />
 
+      {organizing && <BackCloser onClose={exitOrganizing} />}
       {organizing && (
         <div style={{ position: "sticky", top: 60, zIndex: 31, background: "#FFE08A", color: "#5A4300", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 900 }}>
           <span style={{ flex: 1 }}>整理模式：按住 ⠿ 拖曳、▲▼、略過</span>
@@ -5365,7 +5387,7 @@ const StationPage = ({
         </div>
       </div>
 
-      <DayTabs tripData={tripData} st={st} dayIdx={dayIdx} compact onPick={(i) => go({ level: "station", day: i, spot: 0 }, true)} />
+      <DayTabs tripData={tripData} st={st} dayIdx={dayIdx} compact onPick={(i) => go({ level: "station", day: i, spot: 0 }, "replaceBoth")} />
       <div style={{ display: "flex", alignItems: "flex-start" }}>
       <div style={{ width: 40, flexShrink: 0, alignSelf: "stretch" }}>
         <StationRail spots={spots} spotIdx={spotIdx} cur={st.phase === "trip" && st.dayIdx === dayIdx ? st.spotIdx : -1} color={color} tint={METRO.tints[dayIdx]} onPick={(i) => go({ level: "station", day: dayIdx, spot: i }, true)} />
@@ -5587,20 +5609,33 @@ function App() {
     const onPop = (e) => {
       const depth = (e.state && e.state.metroDepth) || 1;
       setMetroStack((st) => st.slice(0, Math.max(1, Math.min(depth, st.length))));
+      // 資訊／清單／統計等分頁也在 history 裡：返回時回到進分頁前的路線圖畫面
+      setActiveTabRaw((e.state && e.state.tab) || "metro");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
-  const metroGo = (v, mode) => {
+  const metroGo = (v, mode) => navRun(() => metroGoNow(v, mode));
+  const metroGoNow = (v, mode) => {
     const st = metroStackRef.current;
     if (mode === "root") {
-      if (st.length > 1) history.go(-(st.length - 1));
+      if (st.length > 1) { NAV.pending++; history.go(-(st.length - 1)); }
+      return;
+    }
+    if (mode === "replaceBoth") {
+      // 站點頁切日期：父層（當日路線）跟著換成同一天，返回時回到那一天的路線
+      setMetroStack((x) => { const y = x.slice(); if (y.length >= 3 && y[y.length - 2].level === "day") y[y.length - 2] = { level: "day", day: v.day }; y[y.length - 1] = v; return y; });
       return;
     }
     if (mode === "replaceParent") {
-      if (st.length >= 2) {
+      // 父層是首頁環狀圖（從首頁卡片直接進站點）：不能把首頁蓋掉，改成原地換成當日路線
+      if (st.length === 2 && st[0].level === "ring") {
+        setMetroStack([st[0], v]);
+        return;
+      }
+      if (st.length >= 3) {
         setMetroStack((x) => { const y = x.slice(); y[y.length - 2] = v; return y; });
-        history.back();
+        navBack();
       } else {
         setMetroStack([st[0], v]);
         history.pushState({ metroDepth: 2 }, "");
@@ -5616,14 +5651,24 @@ function App() {
     history.pushState({ metroDepth: nx.length }, "");
   };
   const metroBack = () => {
-    if (metroStackRef.current.length > 1) history.back();
+    if (metroStackRef.current.length > 1) navBack();
   };
-  const setActiveTab = (t) => {
+  const setActiveTab = (t) => navRun(() => {
     const st = metroStackRef.current;
-    if (st.length > 1) history.go(-(st.length - 1));
-    setActiveTabRaw(t);
+    const onTab = !!(history.state && history.state.tab);
+    if (t === "metro") {
+      // 回路線圖＝回首頁環狀圖：把分頁那一層和路線圖堆疊一起退掉
+      const k = (onTab ? 1 : 0) + (st.length - 1);
+      if (k > 0) { NAV.pending++; history.go(-k); } else setActiveTabRaw("metro");
+    } else if (onTab) {
+      history.replaceState({ ...history.state, tab: t }, "");
+      setActiveTabRaw(t);
+    } else {
+      history.pushState({ metroDepth: st.length, tab: t }, "");
+      setActiveTabRaw(t);
+    }
     window.scrollTo(0, 0);
-  };
+  });
   const metroView = metroStack[metroStack.length - 1];
   const [selectedDay, setSelectedDay] = useState("all");
   const [currentThemeIndex, setCurrentThemeIndex] = useState(() =>
@@ -6785,7 +6830,7 @@ function App() {
   const openIntelStation = (i) => {
     const j = intelJob; if (!j) return;
     setIntelJob(null); setActiveTab("metro");
-    setTimeout(() => metroGo({ level: "station", day: j.dayIdx, spot: i }), 0);
+    metroGo({ level: "station", day: j.dayIdx, spot: i });
   };
   const launchGeminiPriceCheck = () => launchGemini(window.GEMINI_PRICE_PROMPT || GEMINI_PRICE_PROMPT_DEFAULT);
   const shoppingBody = (
@@ -7147,6 +7192,13 @@ function App() {
           </div>
         </div>
       )}
+      {isKeyModalOpen && <BackCloser onClose={() => setIsKeyModalOpen(false)} />}
+      {isModalOpen && <BackCloser onClose={() => setIsModalOpen(false)} />}
+      {isEmailModalOpen && <BackCloser onClose={() => setIsEmailModalOpen(false)} />}
+      {isDailyDetailOpen && <BackCloser onClose={() => setIsDailyDetailOpen(false)} />}
+      {intelJob && !intelJob.min && <BackCloser onClose={() => setIntelJob((j) => j && { ...j, min: true })} />}
+      {showMore && <BackCloser onClose={() => setShowMore(false)} />}
+      {showChainPanel && <BackCloser onClose={() => setShowChainPanel(false)} />}
       <ApiKeyModal
         isOpen={isKeyModalOpen}
         onClose={() => setIsKeyModalOpen(false)}

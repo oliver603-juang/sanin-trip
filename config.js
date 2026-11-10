@@ -52,18 +52,20 @@ window.RAW_KML_DATA = [
       { sid: "sp020", name: "2nd Street Tottori Yasunaga", lat: 35.512796, lon: 134.205333, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp021", name: "LAMU Tottori", lat: 35.5108333, lon: 134.2036111, desc: "位置完美契合： 位於「安長」，這間超市就在您第二站 2nd Street Tottori Yasunaga 的同一個商業區內，兩者相距不到 200 公尺！ 打折攻略： LAMU 在日本是出了名的「超廉價量販超市」（大黑天物產旗下）。這裡的便當本來就誇張便宜（常態有 198 日圓的佛心便當），到了晚上依然會有折扣出清。除了便當，這裡的麵包、大份量三角飯糰、飲料和零食都是當地人的省錢首選，而且它是 24 小時營業。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp022", name: "Green Rich Hotel Tottori Ekimae", lat: 35.4953415, lon: 134.2282919, desc: "預算表現：目前的報價顯示，四人入住含早餐大約在 5,300 - 5,800 台幣左右，穩穩守在你的 7000 元預算內。 亮點：飯店的床鋪特別選用高品質床墊，對於開了一整天車的駕駛來說，能獲得非常好的睡眠品質。早餐提供日洋混合式的自助餐，絕對能滿足發育中男孩的胃口。", mapCode: "", driveTime: "", ticket: { adult: 22893, child: 0, locked: true, note: "已訂房價（含稅）" } },
+      { sid: "sp073", defaultStay: "30 min", name: "步行到 まちパル鳥取（買サンド娃娃）", lat: 35.496002, lon: 134.229065, desc: "🧸 入住後步行約 5 分（JR 鳥取站北口，鳥取市末広温泉町160，1F 鳥取市ふるさと物産館）。營業 9:00–19:00，要在 19:00 前到！Day 2 很長，若 18:30 還沒到鳥取，先開車來這裡再去 Hard Off／AEON／LAMU（那幾家開得比較晚）。目標：胸前掛彩帶的「とっとりふるさと大使」サンド／アローラサンド限定娃娃——不開放網購、熱門時常缺貨，這裡是第一個購買機會，看到就先買。沒貨的話明天還有砂丘遊客中心、倉吉駅ヨコプラザ兩次機會。📞 出發前一週打電話問庫存。開車來可停本町／栄町停車場，消費滿 ¥1,000 送 60 分免費停車。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
     ],
   },
   {
     dayId: "day3", date: "1/27 (三)", title: "鳥取海線", themeColor: "bg-[#A9BFA8]",
     spots: [
       { sid: "sp023", name: "鳥取沙丘綠洲", lat: 35.5443388, lon: 134.2326177, desc: "冬限定「白色沙丘」： 1 月下旬的鳥取海岸常有降雪，沙丘覆蓋白雪時會形成特殊的「雪沙交織」景觀。 在沙丘起伏的坡面上踩雪漫步，對孩子來說是少見的雪地地貌體驗。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
-      { sid: "sp024", name: "鳥取沙丘 砂之美術館", lat: 35.5396253, lon: 134.2383683, desc: "《寶可夢》系列：通常會推出鳥取縣的觀光大使——穿山鼠（サンド）與阿羅拉穿山鼠的專屬砂雕公仔，深受粉絲喜愛。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp024", defaultStay: "45 min", name: "鳥取砂丘ビジターセンター（遊客中心）", lat: 35.542038, lon: 134.234375, desc: "⚠️ 原排的「砂之美術館」很可能沒開：第 17 期展覽只到 2027/1/3，往年下一期 4 月底才開，1/27 大概沒有展覽，所以改來這裡。🏜️ 室內、免費，9:00–17:00（福部町湯山2164-971），停沙丘前的「鳥取砂丘駐車場」，跟沙丘共用不用再移車。可以玩：赤腳玩沙的兒童區（特展期間可能撤掉）、顯微鏡看世界各地的沙、砂紋／砂柱／砂簾展示。🧸 第二個買サンド／アローラサンド限定娃娃的地方（昨晚まちパル沒買到就在這裡補）。📞 0857-22-0021（出發前一週問庫存）。每月第 3 個週六的「サンドの日」活動是 1/16，這趟碰不到。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp025", name: "螃蟹兒童博物館", lat: 35.534477, lon: 134.17879, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp026", name: "WarabeKan", lat: 35.5043355, lon: 134.2334186, desc: "玩具博物館", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp027", name: "青山剛昌故鄉館 #柯南小鎮", lat: 35.498032, lon: 133.7618098, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp028", name: "倉吉ふるさと工芸館", lat: 35.4315003, lon: 133.8236435, desc: "在倉吉故鄉工藝館，您可以找到名為「倉吉絣」的傳統手作織品，常被製成門簾或布包。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp029", name: "Otakaraichibankan Kurayoshiten", lat: 35.4488889, lon: 133.8469444, desc: "", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
+      { sid: "sp074", defaultStay: "15 min", name: "倉吉駅ヨコプラザ（サンド娃娃備案）", lat: 35.454658, lon: 133.849835, desc: "🧸 第三個買サンド／アローラサンド娃娃的機會：倉吉站旁，離お宝市番館、Purple Town 不到 1 km。前兩站已經買到就跳過。營業時間出發前再確認。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp030", name: "Shin Ajiso - Purple Town Location", lat: 35.4488892, lon: 133.8479681, desc: "完美地利： 這間在地大型超市位於「Purple Town」購物中心內，它的地址與您要去的二手店 Otakaraichibankan 幾乎是緊鄰的（都在倉吉市山根區）！您完全可以把車停著，大人逛二手店，另一半直接走過去超市買晚餐。 打折時機： 營業至晚上 21:00。如果您傍晚 18:30 到 19:30 之間在這裡採買，這正是日本在地超市熟食區（惣菜、壽司、便當）開始貼上「20%引」或「半額 (50% OFF)」黃色貼紙的黃金時段，買完開車上三朝溫泉只需約 15 分鐘。", mapCode: "", driveTime: "", ticket: { adult: 0, child: 0 } },
       { sid: "sp031", name: "萬翠樓 (ManSuiRou) ｜ 三朝溫泉", lat: 35.4116107, lon: 133.893098, desc: "預算表現： 約 $5,100 - $5,500 台幣 / 晚（含早餐） 符合條件： 客房內有獨立衛浴、含早餐。 床鋪配置（解決男孩打架問題）： 日式大坪數和室，鋪設 4 張獨立日式床墊（Futon）。 C/P值破表的理由： 就像您在地圖筆記中發現的一樣，這是一間傳統且氣派的四星級大型日式旅館。用不到 6000 台幣的價格，能讓一家四口住進擁有自家源泉的高級溫泉旅館，享受日式庭園與細膩服務，這在溫泉區簡直是打著燈籠都找不到的超狂價格。加上榻榻米空間極大，男孩們一人一張床墊完全不會互相干擾，性價比絕對是全場冠軍！", mapCode: "", driveTime: "", ticket: { adult: 37400, child: 0, locked: true, note: "已訂房價（含稅）" } },
     ],
@@ -374,7 +376,7 @@ window.SHOPPING_LIST = [
   { id: "s4", channels: ["倉敷帆布","帆布バッグ 専門店"], name: "倉敷帆布包", category: "craft", keywords: ["倉敷帆布","Kurashiki Hanpu","帆布"], icon: "👜", note: "日本 70% 帆布產自倉敷，梭織機製作超耐用", bought: false },
   { id: "s5", channels: ["NAGASAWA 文具","文房具店","ロフト"], name: "NAGASAWA 鋼筆/文具", category: "stationery", keywords: ["NAGASAWA","文具","PenStyle","煉瓦倉庫"], icon: "🖋️", note: "神戶老字號文具店，Kobe INK 物語", bought: false },
   { id: "s6", channels: ["名探偵コナン グッズ","アニメイト","コナン探偵社"], name: "柯南周邊", category: "toys", keywords: ["柯南","青山剛昌","北榮"], icon: "🔍", note: "青山剛昌故鄉館 & 柯南小鎮限定", bought: false },
-  { id: "s7", channels: ["砂の美術館 ショップ","鳥取 お土産","ポケモンセンター"], name: "穿山鼠砂雕公仔", category: "toys", keywords: ["砂之美術館","鳥取砂丘","寶可夢","サンド"], icon: "🏜️", note: "鳥取縣觀光大使限定", bought: false },
+  { id: "s7", channels: ["まちパル鳥取","鳥取砂丘ビジターセンター","倉吉駅ヨコプラザ"], name: "サンド／アローラサンド 限定娃娃", category: "toys", keywords: ["まちパル","ビジターセンター","ヨコプラザ","鳥取砂丘","サンド"], icon: "🧸", note: "鳥取縣觀光大使款（胸前掛彩帶），不開放網購、常缺貨。購買順序：Day2 晚上 まちパル鳥取（19:00 前）→ Day3 砂丘遊客中心 → 倉吉駅ヨコプラザ。出發前一週先打電話問庫存（遊客中心 0857-22-0021）。", bought: false },
   { id: "s8", channels: ["倉吉絣","工芸品 店","民芸品"], name: "倉吉絣", category: "craft", keywords: ["倉吉","工芸館","絣","織品"], icon: "🧵", note: "傳統手作織品，門簾/布包", bought: false },
 ];
 
@@ -408,7 +410,7 @@ window.CHAIN_STORES = [
 window.RADAR_KEYS = {
   day1: { cities: ["神戸市 三宮", "神戸ハーバーランド"], venues: ["バンドー神戸青少年科学館"], malls: ["umie", "イオンモール神戸南"] },
   day2: { cities: ["三田市", "朝来市 和田山", "鳥取市"], venues: ["六甲山スノーパーク", "有馬玩具博物館"], malls: ["イオンモール鳥取北", "イオン鳥取店"] },
-  day3: { cities: ["鳥取市", "北栄町", "倉吉市", "三朝温泉"], venues: ["鳥取砂丘 砂の美術館", "わらべ館", "青山剛昌ふるさと館"], malls: ["パープルタウン倉吉", "鳥取大丸"] },
+  day3: { cities: ["鳥取市", "北栄町", "倉吉市", "三朝温泉"], venues: ["鳥取砂丘ビジターセンター", "わらべ館", "青山剛昌ふるさと館"], malls: ["パープルタウン倉吉", "鳥取大丸"] },
   day4: { cities: ["津山市", "倉敷市 美観地区"], venues: ["津山まなびの鉄道館", "桃太郎のからくり博物館"], malls: ["アリオ倉敷", "ゆめタウン倉敷"] },
   day5: { cities: ["倉敷市", "岡山市", "姫路市"], venues: ["倉敷科学センター", "岡山市水道記念館", "おかでんミュージアム"], malls: ["イオンモール岡山", "テラッソ姫路", "ピオレ姫路"] },
   day6: { cities: ["姫路市", "加古川市", "神戸市"], venues: ["姫路城", "神戸海洋博物館 カワサキワールド"], malls: ["ニッケパークタウン", "umie"] },

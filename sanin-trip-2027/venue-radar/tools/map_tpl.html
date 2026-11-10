@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--NOINDEX-->
+<title>沿路親子場館雷達</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--bg:#F7F5F0;--card:#fff;--ink:#2B2A28;--mute:#7A7468;--line:#E3DED3;--warn:#B3261E;--warnbg:#FDECEA;--trip:#0B6B3A;--tripbg:#E5F4EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"Noto Sans TC","Hiragino Sans","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:12px 16px 4px}
+h1{font-size:18px;margin:0}
+.sub{font-size:12px;color:var(--mute);margin-top:3px;line-height:1.5}
+.filters{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 10px}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:5px}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.sep{width:1px;background:var(--line);margin:0 4px}
+#map{height:62vh;min-height:360px;margin:0 16px;border-radius:12px;border:1px solid var(--line)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;padding:8px 16px;font-size:12px;color:var(--mute)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px}
+.ring{display:inline-block;width:11px;height:11px;border-radius:50%;border:3px solid;vertical-align:-1px}
+.pieicon{background:none;border:none}
+.pieicon svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));transition:transform .15s}
+.pieicon:hover svg{transform:scale(1.12)}
+.badge{position:absolute;top:-6px;right:-8px;font-size:13px;line-height:1}
+.leaflet-popup-content{margin:12px 14px}
+.sc{width:310px;font-size:12.5px;max-height:72vh;overflow:auto}
+.sc h3{font-size:15px;margin:0 0 2px}
+.sc .m{font-size:12px;color:var(--mute)}
+.tp{display:inline-block;color:#fff;border-radius:999px;padding:1px 8px;font-size:11px;margin-right:4px}
+.body{display:flex;gap:12px;align-items:center;margin:8px 0}
+.lg{list-style:none;padding:0;margin:0;font-size:12px;flex:1}
+.lg li{display:flex;gap:6px;align-items:center;margin:2px 0}.lg b{margin-left:auto}.lg i{color:var(--mute);font-style:normal;width:32px;text-align:right}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+.box{border-radius:8px;padding:6px 8px;margin:6px 0;line-height:1.55}
+.box.w{background:var(--warnbg);color:var(--warn)}
+.box.t{background:var(--tripbg);color:var(--trip)}
+.box.i{background:#EEF3FA;color:#1A4C80}
+.box b{display:block;font-size:12px;margin-bottom:2px}
+.box div{margin:2px 0}
+.box a{color:inherit}
+.kv{margin:4px 0;line-height:1.7}.kv b{color:var(--mute);font-weight:500;margin-right:4px}
+.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 7px;margin:0 3px 3px 0;font-size:11.5px}
+.th{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0}.th a{display:block;width:46px;height:46px;border-radius:6px;overflow:hidden;background:var(--line)}.th img{width:100%;height:100%;object-fit:cover;display:block}
+.recent{border-top:1px solid var(--line);margin-top:6px;padding-top:6px;max-height:160px;overflow:auto}
+.recent div{margin:3px 0;line-height:1.45}
+.recent .d{color:var(--mute);margin-right:4px}
+.btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.btns a,.btns button{font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;cursor:pointer}
+#pies{padding:4px 16px 8px}
+#pies h2{font-size:16px;margin:14px 0 4px}
+.tyrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0}
+.tyhd{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;flex-wrap:wrap}
+.tylg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--mute);margin:4px 0 8px}
+.tylg span{display:inline-flex;align-items:center;gap:4px}
+.pgrid{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px 18px}
+.pv{display:flex;flex-direction:column;align-items:center;cursor:pointer;max-width:120px;text-align:center}
+.pv .nm{font-size:12px;margin-top:4px;line-height:1.3}.pv .ct{font-size:11.5px;color:var(--mute)}
+.pv:hover .nm{text-decoration:underline}
+.scale{font-size:12px;color:var(--mute);display:flex;align-items:flex-end;gap:14px;margin-top:4px;flex-wrap:wrap}
+.scale div{display:flex;flex-direction:column;align-items:center}
+.scale i{display:block;border:1.5px dashed #A7A196;border-radius:50%}
+#list{padding:4px 16px 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px}
+.day{grid-column:1/-1;font-weight:700;margin:12px 0 0;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.card .n{font-weight:600;font-size:13.5px}.card .m{font-size:12px;color:var(--mute);margin-top:2px}
+.flag{font-size:11px;border-radius:999px;padding:1px 7px;margin:4px 4px 0 0;display:inline-block}
+.flag.w{background:var(--warnbg);color:var(--warn)}.flag.t{background:var(--tripbg);color:var(--trip)}
+@media (max-width:520px){.sc{width:260px}#map{margin:0 8px}.filters,header,#list,.legend{padding-left:10px;padding-right:10px}}
+</style>
+</head>
+<body>
+<header><h1>2027 山陰冬遊・沿路親子場館雷達</h1><div class="sub" id="upd"></div></header>
+<div class="filters" id="f"></div>
+<div id="map"></div>
+<div class="legend" id="lg"></div>
+<div id="pies"></div>
+<div id="list"></div>
+<script>
+/*DATA*/
+const DAYC=["#1767B3","#D61F35","#13804A","#E89B00","#7B52AE","#A86B25"];
+const TYPES={
+ museum:{n:"博物館／科學館",c:"#1767B3",cats:["企劃展・特展","工作坊・體驗","館內活動・表演","商店・周邊限定","休館・營業資訊","其他"]},
+ park_fun:{n:"樂園・遊樂",c:"#D61F35",cats:["遊樂設施","季節活動（冬季、雪）","角色・表演","餐飲・限定商品","營業・天候・雪況","其他"]},
+ outdoor:{n:"公園・戶外・古蹟",c:"#13804A",cats:["景色・雪景","活動・祭典","設施開放・整修","天候・交通","其他"]},
+ kids:{n:"小學生友善",c:"#E89B00",cats:["體驗・工作坊","室內遊戲","展示","預約・營業資訊","其他"]},
+ toy:{n:"玩具店（新品）",c:"#7B52AE",cats:["新品到貨","限定・抽選","活動・體驗會","特價","其他"]}};
+const PAL=["#2E86DE","#F39C12","#16A085","#C0392B","#8E44AD","#A7A196"];
+const colOf=(t,k)=>{const a=TYPES[t].cats;const i=a.indexOf(k);return k==="其他"?"#A7A196":PAL[i]};
+const TRIP0="2027-01-25",TRIP1="2027-01-30",TODAY=UPDATED.slice(0,10);
+let fDay=new Set(),fType=new Set(),fTrip=false,fWarn=false,fPlat='all';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const small=u=>u.replace('name=large','name=small');
+const md=d=>d?d.slice(5).replace('-','/'):'';
+function pie(t,c,size,center){const cats=TYPES[t].cats,ring=TYPES[t].c;const tot=cats.reduce((a,k)=>a+(c[k]||0),0);const R0=size/2,r=R0-Math.max(2,Math.min(4,size/10)),cx=R0,cy=R0;let a=-Math.PI/2,o=`<circle cx="${cx}" cy="${cy}" r="${R0-1}" fill="${ring}"/>`;
+ if(!tot)o+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="#ddd"/>`;
+ else for(const k of cats){const v=c[k]||0;if(!v)continue;if(v>=tot){o+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${colOf(t,k)}"/>`;break}
+  const b=a+2*Math.PI*v/tot,la=b-a>Math.PI?1:0;o+=`<path d="M${cx},${cy}L${(cx+r*Math.cos(a)).toFixed(1)},${(cy+r*Math.sin(a)).toFixed(1)}A${r},${r} 0 ${la} 1 ${(cx+r*Math.cos(b)).toFixed(1)},${(cy+r*Math.sin(b)).toFixed(1)}Z" fill="${colOf(t,k)}"><title>${k} ${v}</title></path>`;a=b}
+ if(center)o+=`<circle cx="${cx}" cy="${cy}" r="${(r*.5).toFixed(1)}" fill="#fff"/><text x="${cx}" y="${cy+size*.07}" text-anchor="middle" font-size="${Math.round(size*.2)}" font-weight="700" fill="#2B2A28">${tot}</text>`;
+ return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${o}</svg>`}
+function legend(t,c){const cats=TYPES[t].cats;const tot=cats.reduce((a,k)=>a+(c[k]||0),0)||1;return '<ul class="lg">'+cats.map(k=>`<li><span class="sw" style="background:${colOf(t,k)}"></span>${k}<b>${c[k]||0}</b><i>${Math.round((c[k]||0)*100/tot)}%</i></li>`).join('')+'</ul>'}
+function count(arr,key){const m={};arr.forEach(p=>(p[key]||[]).forEach(t=>m[t]=(m[t]||0)+1));return Object.entries(m).sort((a,b)=>b[1]-a[1])}
+const ovl=(a,b)=>a&&b&&a<=TRIP1&&b>=TRIP0;
+function stat(v){const hs=[...v.x,...(v.ig||[])].map(h=>h.toLowerCase());const ps=POSTS.filter(p=>hs.includes(p.handle.toLowerCase())&&(fPlat==='all'||p.platforms.includes(fPlat))).sort((a,b)=>b.date.localeCompare(a.date));
+ const real=ps.filter(p=>!p.greet);const c={};TYPES[v.type].cats.forEach(k=>c[k]=0);real.forEach(p=>p.categories.forEach(k=>c[k]=(c[k]||0)+1/p.categories.length));for(const k in c)c[k]=Math.round(c[k]);
+ const trip=real.filter(p=>p.inTrip);const al=(v.alerts||[]);
+ const warnA=al.filter(a=>a.level!=='info'&&(a.from==null||ovl(a.from,a.to)));
+ const warnP=real.filter(p=>p.closure&&(p.eventTo?p.eventTo>=TODAY:p.date>=TODAY.slice(0,8)+'01'));
+ const info=al.filter(a=>a.level==='info'&&ovl(a.from,a.to));
+ const nx=real.filter(p=>p.platforms.length===1&&p.platforms[0]==='x').length,ni=real.filter(p=>p.platforms.length===1&&p.platforms[0]==='ig').length,nd=real.filter(p=>p.platforms.length>1).length;
+ return{nx,ni,nd,ps,real,c,trip,warnA,warnP,info,hasTrip:trip.length+info.length>0,hasWarn:warnA.length+warnP.length>0}}
+function card(v,st){const T=TYPES[v.type];const nav='https://www.google.com/maps/dir/?api=1&destination='+v.lat+','+v.lon;
+ const tags=count(st.real,'tags').slice(0,10);const pics=st.real.filter(p=>(p.imgs&&p.imgs.length)||p.th).slice(0,8);
+ const wl=[...st.warnA.map(a=>`<div>${a.level==='closed'?'⛔':'⚠️'} ${esc(a.text)} <a href="${a.src}" target="_blank" rel="noopener">來源</a></div>`),...st.warnP.map(p=>`<div>⚠️ ${md(p.date)} 貼文：${esc(p.text.slice(0,90))} ${plinks(p)}</div>`)];
+ const tl=[...st.info.map(a=>`<div>🎯 ${esc(a.text)} <a href="${a.src}" target="_blank" rel="noopener">來源</a></div>`),...st.trip.map(p=>`<div>🎯 ${md(p.eventFrom)}–${md(p.eventTo)}　${esc((p.name||p.text).slice(0,70))} ${plinks(p)}</div>`)];
+ return `<div class="sc"><h3>${esc(v.name)}</h3><div class="m"><span class="tp" style="background:${T.c}">${T.n}</span>Day ${v.day}・${v.inTrip?'行程中':'近 '+esc(v.near)+'・繞路約 '+v.detourMin+' 分'}</div>
+<div class="body">${pie(v.type,st.c,96,true)}${legend(v.type,st.c)}</div>
+${wl.length?`<div class="box w"><b>⚠️ 休館・營業警示</b>${wl.join('')}</div>`:''}
+<div class="box ${tl.length?'t':'i'}"><b>🎯 1/25–1/30 行程期間的活動</b>${tl.join('')||'<div>目前貼文裡沒有提到這幾天的活動（1 月的活動通常 12 月才公布）</div>'}</div>
+<div class="kv"><b>常見標籤</b>${tags.map(([t,n])=>`<span class="tag">${esc(t)} ${n}</span>`).join('')||'—'}</div>
+<div class="kv"><b>來源</b>X 限定 ${st.nx}・IG 限定 ${st.ni}・兩邊都有 ${st.nd} 則</div>
+<div class="th">${pics.map(p=>{const href=p.imgs&&p.imgs.length?p.imgs[0]:(p.igUrl||p.url);const src=p.imgs&&p.imgs.length?small(p.imgs[0]):p.th;return `<a href="${href}" target="_blank" rel="noopener" title="${esc(md(p.date)+' '+p.text.slice(0,40))}"><img loading="lazy" src="${src}" alt=""></a>`}).join('')}</div>
+<div class="recent">${st.real.slice(0,12).map(p=>`<div><span class="d">${p.pinned?'📌':''}${md(p.date)}</span>${p.closure?'⚠️':''}${p.inTrip?'🎯':''}${esc(p.text.slice(0,70))} ${plinks(p)}</div>`).join('')||'10/1 起沒有貼文'}</div>
+<div class="btns"><a href="${nav}" target="_blank" rel="noopener">導航</a>${v.x.map(h=>`<a href="https://x.com/${h}" target="_blank" rel="noopener">X @${h}</a>`).join('')}${(v.ig||[]).map(h=>`<a href="https://www.instagram.com/${h}/" target="_blank" rel="noopener">IG @${h}</a>`).join('')}<button onclick="cp('${v.id}')">📋 複製地點</button></div></div>`}
+function plinks(p){return p.platform==='ig'?`<a href="${p.url}" target="_blank" rel="noopener">IG</a>`:`<a href="${p.url}" target="_blank" rel="noopener">X</a>`+(p.igUrl?` <a href="${p.igUrl}" target="_blank" rel="noopener">IG</a>`:'')}
+function cp(id){const s=VENUES.find(x=>x.id===id);const t=s.name+' @'+s.lat+','+s.lon;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('已複製：'+t)).catch(()=>prompt('複製這段：',t))}
+const map=L.map('map',{scrollWheelZoom:true});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
+const all=[];
+ROUTE.forEach((d,i)=>{const ll=d.pts.map(p=>[p.lat,p.lon]);all.push(...ll);L.polyline(ll,{color:DAYC[i],weight:3,opacity:.6}).addTo(map).bindTooltip('Day '+d.day+'・'+d.title);ll.forEach((x,j)=>L.circleMarker(x,{radius:3,color:DAYC[i],weight:1,fillOpacity:1}).addTo(map).bindTooltip(d.pts[j].name))});
+map.fitBounds(all,{padding:[20,20]});
+const OFF={};(()=>{const g={};VENUES.forEach(s=>{const k=s.lat.toFixed(2)+','+s.lon.toFixed(2);(g[k]=g[k]||[]).push(s)});Object.values(g).forEach(a=>{if(a.length<2){OFF[a[0].id]=[a[0].lat,a[0].lon];return}a.forEach((s,i)=>{const ang=2*Math.PI*i/a.length,d=0.0025;OFF[s.id]=[s.lat+d*Math.sin(ang),s.lon+d*Math.cos(ang)/Math.cos(s.lat*Math.PI/180)]})})})();
+const layer=L.layerGroup().addTo(map);const mk={};
+function ok(v,st){if(fDay.size&&!fDay.has(v.day))return false;if(fType.size&&!fType.has(v.type))return false;if(fTrip&&!st.hasTrip)return false;if(fWarn&&!st.hasWarn)return false;return true}
+// 圓餅直徑與則數成正比：d = K × 則數（太小時最少 MIN px，避免點不到）
+const MAPMAX=84,MAPMIN=14,GRIDMAX=150,GRIDMIN=16;
+const dia=(n,max,top,min)=>Math.max(min,Math.round(top*n/Math.max(1,max)));
+function renderPies(rows,nmax){const el=document.getElementById('pies');const by={};rows.forEach(r=>(by[r[0].type]=by[r[0].type]||[]).push(r));
+ let h='<h2>類別圓餅圖</h2><div class="sub">每個場館一個圓餅，<b>直徑跟貼文則數成正比</b>（最大的一家 '+nmax+' 則＝'+GRIDMAX+'px，太少的最小顯示 '+GRIDMIN+'px）。點圓餅會在地圖上打開它的分析卡片。</div>';
+ h+='<div class="scale">'+[nmax,Math.round(nmax/2),Math.round(nmax/4),10].filter((x,i,a)=>x>0&&a.indexOf(x)===i).map(n=>{const d=dia(n,nmax,GRIDMAX,GRIDMIN);return `<div><i style="width:${d}px;height:${d}px"></i>${n} 則</div>`}).join('')+'</div>';
+ Object.keys(TYPES).forEach(t=>{const a=by[t];if(!a)return;const T=TYPES[t];a.sort((x,y)=>y[1].real.length-x[1].real.length);
+  const tot={};T.cats.forEach(k=>tot[k]=0);a.forEach(([v,st])=>T.cats.forEach(k=>tot[k]+=st.c[k]||0));const sum=T.cats.reduce((x,k)=>x+tot[k],0)||1;
+  h+=`<div class="tyrow"><div class="tyhd"><span class="ring" style="border-color:${T.c}"></span>${T.n}<span class="ct" style="font-weight:400;color:var(--mute);font-size:12px">${a.length} 個場館・${a.reduce((x,r)=>x+r[1].real.length,0)} 則</span></div>
+  <div class="tylg">${T.cats.map(k=>`<span><span class="sw" style="background:${colOf(t,k)}"></span>${k} ${Math.round(tot[k]*100/sum)}%</span>`).join('')}</div>
+  <div class="pgrid">${a.map(([v,st])=>{const d=dia(st.real.length,nmax,GRIDMAX,GRIDMIN);return `<div class="pv" onclick="focusV('${v.id}')" title="${esc(v.name)}">${pie(t,st.c,d,false)}<div class="nm">${esc(v.name)}</div><div class="ct">Day ${v.day}・${st.real.length} 則${st.hasWarn?' ⚠️':''}${st.hasTrip?' 🎯':''}</div></div>`}).join('')}</div></div>`});
+ el.innerHTML=h}
+function focusV(id){window.scrollTo({top:document.getElementById('map').offsetTop-10,behavior:'smooth'});map.setView(OFF[id],13);setTimeout(()=>mk[id]&&mk[id].openPopup(),400)}
+function render(){layer.clearLayers();const L2=document.getElementById('list');L2.innerHTML='';const by={};let n=0,nv=0;
+ const rows=VENUES.map(v=>[v,stat(v)]).filter(([v,st])=>ok(v,st));const nmax=Math.max(1,...rows.map(r=>r[1].real.length));renderPies(rows,nmax);
+ rows.forEach(([v,st])=>{n+=st.real.length;nv++;
+  const d=dia(st.real.length,nmax,MAPMAX,MAPMIN);
+  const badge=(st.hasWarn?'⚠️':'')+(st.hasTrip?'🎯':'');
+  const m=L.marker(OFF[v.id],{icon:L.divIcon({className:'pieicon',html:`<div style="position:relative">${pie(v.type,st.c,d,false)}${badge?`<span class="badge">${badge}</span>`:''}</div>`,iconSize:[d,d],iconAnchor:[d/2,d/2],popupAnchor:[0,-d/2]}),riseOnHover:true,zIndexOffset:-d*10})
+   .bindPopup(card(v,st),{maxWidth:340,minWidth:260,autoPanPadding:[20,20]}).bindTooltip(v.name+'・'+st.real.length+' 則',{direction:'top',offset:[0,-d/2]});
+  layer.addLayer(m);mk[v.id]=m;(by[v.day]=by[v.day]||[]).push([v,st])});
+ document.getElementById('upd').innerHTML='更新：'+esc(UPDATED.replace('T',' ').slice(0,16))+'　顯示 '+nv+' 個場館・'+n+' 則貼文（X＋IG，2026/10/1 起，置頂保留，兩平台重複的只算一則，已略過問候和純連結貼文）<br>行程 2027/1/25–1/30・2 大 2 小（9–10 歲）・分類和日期是用關鍵字自動判斷，可能有誤，出發前請到官方再確認';
+ Object.keys(by).sort().forEach(d=>{const h=document.createElement('div');h.className='day';h.style.color=DAYC[d-1];h.textContent='Day '+d+'　'+(ROUTE[d-1].date||'')+' '+(ROUTE[d-1].title||'');L2.appendChild(h);
+  by[d].sort((a,b)=>(b[1].hasWarn-a[1].hasWarn)||(b[1].hasTrip-a[1].hasTrip)||(b[1].real.length-a[1].real.length)).forEach(([v,st])=>{const c=document.createElement('div');c.className='card';
+   c.innerHTML=pie(v.type,st.c,46,false)+`<div><div class="n">${esc(v.name)}</div><div class="m">${TYPES[v.type].n}・${st.real.length} 則・${v.inTrip?'行程中':'繞路 '+v.detourMin+' 分'}</div><div>${st.hasWarn?'<span class="flag w">⚠️ 休館警示</span>':''}${st.hasTrip?'<span class="flag t">🎯 行程期間有活動</span>':''}</div></div>`;
+   c.onclick=()=>{window.scrollTo({top:0,behavior:'smooth'});map.setView(OFF[v.id],14);setTimeout(()=>mk[v.id].openPopup(),350)};L2.appendChild(c)})})}
+const F=document.getElementById('f');
+function chip(h,fn){const c=document.createElement('span');c.className='chip';c.innerHTML=h;c.onclick=()=>{fn();c.classList.toggle('on');render()};F.appendChild(c)}
+for(let d=1;d<=6;d++)chip('Day '+d,()=>fDay.has(d)?fDay.delete(d):fDay.add(d));
+F.appendChild(Object.assign(document.createElement('span'),{className:'sep'}));
+Object.entries(TYPES).forEach(([k,t])=>chip(`<span class="ring" style="border-color:${t.c}"></span>${t.n}`,()=>fType.has(k)?fType.delete(k):fType.add(k)));
+F.appendChild(Object.assign(document.createElement('span'),{className:'sep'}));
+chip('🎯 行程期間有活動',()=>fTrip=!fTrip);chip('⚠️ 有休館公告',()=>fWarn=!fWarn);
+F.appendChild(Object.assign(document.createElement('span'),{className:'sep'}));
+(()=>{const opts=[['all','平台：全部'],['x','只看 X'],['ig','只看 IG']];const els=[];opts.forEach(([k,t])=>{const c=document.createElement('span');c.className='chip'+(k==='all'?' on':'');c.textContent=t;c.onclick=()=>{fPlat=k;els.forEach(e=>e.classList.remove('on'));c.classList.add('on');render()};els.push(c);F.appendChild(c)})})();
+document.getElementById('lg').innerHTML=Object.values(TYPES).map(t=>`<span><span class="ring" style="border-color:${t.c}"></span> ${t.n}</span>`).join('')+'<span>・外圈顏色＝類型，內部＝該類型自己的貼文分類・<b>圓餅直徑與貼文則數成正比</b>・點圓餅看分析卡片</span>';
+render();
+</script>
+</body>
+</html>
